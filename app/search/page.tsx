@@ -169,21 +169,13 @@ export default function SearchPage() {
         data: payload,
         receivedAt: new Date().toISOString(),
       };
-      // const searchQuery = {
-      //   from: fromStation.city_name,
-      //   to: toStation.city_name,
-      //   date: journeyDate,
-      // }
 
       try {
         sessionStorage.setItem(
           SEARCH_RESULT_STORAGE_KEY,
           JSON.stringify(resultForResultsPage)
         );
-        // sessionStorage.setItem(
-        //   SEARCH_QUERY_STORAGE_KEY,
-        //   JSON.stringify(searchQuery)
-        // );
+  
       } catch {
         showError("Could not save the search results in this browser. Please try again.");
         return;

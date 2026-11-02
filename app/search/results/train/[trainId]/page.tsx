@@ -1,18 +1,13 @@
-
 "use client";
 
-import {
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import "./SingleTrain.css";
 
-type UnknownObject = Record<string, unknown>;
+/* ----------------------------------------
+   Types
+---------------------------------------- */
 
 type Train = {
   trip_number?: string;
@@ -24,7 +19,11 @@ type Train = {
 };
 
 type StoredAlternative = {
-  route?: { from?: string; to?: string; date?: string };
+  route?: {
+    from?: string;
+    to?: string;
+    date?: string;
+  };
   train?: Train;
   trainId?: string | number;
 };
@@ -43,39 +42,33 @@ type SeatClass = {
   fare?: string | number;
 };
 
-type Combination = {
-  from: string;
-  to: string;
-  fromId?: string;
-  toId?: string;
+type AvailabilityResult = {
+  status: "pending" | "available" | "sold" | "unknown" | "error";
   availableCount: number | null;
   seatClasses: SeatClass[];
-  searchStatus?: "available" | "sold" | "unknown";
+  message?: string;
 };
 
-type ApiState = "idle" | "loading" | "success" | "error";
-type AlternativeState = "idle" | "searching" | "complete" | "error";
+type ApiState = "loading" | "success" | "error";
 
-type SearchApiResponse = {
-  ok?: boolean;
-  error?: string;
-  status?: number;
-  upstreamStatus?: number;
-  data?: unknown;
-};
+/* ----------------------------------------
+   Helpers
+---------------------------------------- */
 
-function objectOf(value: unknown): UnknownObject | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as UnknownObject)
+function asObject(value: unknown): Record<string, any> | null {
+  return value !== null && typeof value === "object"
+    ? (value as Record<string, any>)
     : null;
 }
 
 function unwrap(value: unknown): unknown {
   let current = value;
 
-  for (let i = 0; i < 6; i += 1) {
-    const obj = objectOf(current);
+  for (let i = 0; i < 6; i++) {
+    const obj = asObject(current);
+
     if (!obj || obj.data === undefined) break;
+
     current = obj.data;
   }
 
@@ -83,7 +76,9 @@ function unwrap(value: unknown): unknown {
 }
 
 function displayName(value?: string | number | null): string {
-  if (value === undefined || value === null || value === "") return "—";
+  if (value === undefined || value === null || value === "") {
+    return "—";
+  }
 
   return String(value)
     .replace(/_/g, " ")
@@ -91,365 +86,204 @@ function displayName(value?: string | number | null): string {
     .trim();
 }
 
-function normalizeName(value: string): string {
-  return value.trim().toLocaleLowerCase().replace(/\s+/g, " ");
+function normalizeDate(value?: string): string {
+  if (!value) return "";
+
+  const date = value.includes("T")
+    ? value.split("T")[0]
+    : value;
+
+  return /^\d{4}-\d{2}-\d{2}$/.test(date)
+    ? date
+    : "";
 }
 
-function normalizeJourneyDate(value: string): string {
-  const input = value.trim();
-  const iso = input.match(/^(\d{4}-\d{2}-\d{2})(?:T.*)?$/);
+function formatDate(value?: string): string {
+  if (!value) return "Date not provided";
 
-  if (iso) return iso[1];
+  const raw = normalizeDate(value);
 
-  const dmy = input.match(/^(\d{1,2})[- ]([A-Za-z]{3,})[- ](\d{4})$/);
+  if (!raw) return value;
 
-  if (dmy) {
-    const months = [
-      "jan", "feb", "mar", "apr", "may", "jun",
-      "jul", "aug", "sep", "oct", "nov", "dec",
-    ];
+  const parsed = new Date(`${raw}T00:00:00`);
 
-    const month = months.indexOf(dmy[2].slice(0, 3).toLowerCase());
+  if (Number.isNaN(parsed.getTime())) return value;
 
-    if (month >= 0) {
-      const day = Number(dmy[1]);
-      const year = Number(dmy[3]);
-      const parsed = new Date(Date.UTC(year, month, day));
-
-      if (
-        parsed.getUTCFullYear() === year &&
-        parsed.getUTCMonth() === month &&
-        parsed.getUTCDate() === day
-      ) {
-        return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      }
-    }
-  }
-
-  return "";
+  return new Intl.DateTimeFormat("en-BD", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(parsed);
 }
 
-function formatDate(value: string): string {
-  const date = normalizeJourneyDate(value);
-  if (!date) return "Date not provided";
-
-  const parsed = new Date(`${date}T00:00:00`);
-
-  return Number.isNaN(parsed.getTime())
-    ? value
-    : new Intl.DateTimeFormat("en-BD", {
-        weekday: "short",
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      }).format(parsed);
+function formatTime(station: RouteStation): string {
+  return station.departure || station.arrival || "";
 }
 
-function getRailwayModel(...values: Array<string | number | undefined | null>) {
-  for (const value of values) {
-    if (value === undefined || value === null) continue;
-
-    const text = String(value).trim();
-    if (!text) continue;
-
-    const parentheses = text.match(/\((\d+)\)\s*$/);
-    if (parentheses) return parentheses[1];
-
-    if (/^\d+$/.test(text)) return text;
-
-    const trailingNumber = text.match(/(?:^|\s)(\d+)\s*$/);
-    if (trailingNumber) return trailingNumber[1];
-  }
-
-  return "";
-}
-
-function getArray(obj: UnknownObject | null, keys: string[]): unknown[] {
-  if (!obj) return [];
-
-  for (const key of keys) {
-    if (Array.isArray(obj[key])) return obj[key] as unknown[];
-  }
-
-  return [];
-}
-
-function normalizeStation(
+function stationFrom(
   value: unknown,
-  index: number,
+  index: number
 ): RouteStation | null {
-  const obj = objectOf(value);
-  if (!obj) return null;
+  const obj = asObject(value);
 
-  const city = objectOf(obj.city);
+  if (!obj) return null;
 
   const name = String(
     obj.station_name ??
-      obj.city_name ??
-      city?.city_name ??
-      city?.name ??
-      (typeof obj.city === "string" ? obj.city : "") ??
-      obj.location_name ??
-      obj.name ??
-      "",
+    obj.city_name ??
+    obj.city ??
+    obj.location_name ??
+    obj.name ??
+    ""
   ).trim();
 
   if (!name) return null;
 
-  const rawId =
-    obj.station_id ??
-    obj.city_id ??
-    city?.city_id ??
-    city?.id ??
-    obj.location_id ??
-    obj.id;
-
   const sequence = Number(
     obj.city_sequence ??
-      obj.station_sequence ??
-      obj.sequence ??
-      obj.order ??
-      index,
+    obj.station_sequence ??
+    obj.sequence ??
+    obj.order ??
+    index
   );
 
   return {
-    id: rawId === undefined || rawId === null ? "" : String(rawId),
+    id: String(
+      obj.city_id ??
+      obj.station_id ??
+      obj.location_id ??
+      obj.id ??
+      name
+    ),
     name,
     sequence: Number.isFinite(sequence) ? sequence : index,
-    arrival: obj.arrival_time ? String(obj.arrival_time) : undefined,
-    departure: obj.departure_time ? String(obj.departure_time) : undefined,
+    arrival: obj.arrival_time
+      ? String(obj.arrival_time)
+      : undefined,
+    departure: obj.departure_time
+      ? String(obj.departure_time)
+      : undefined,
   };
 }
 
-function normalizeSeat(value: unknown): SeatClass | null {
-  const obj = objectOf(value);
+function extractStations(payload: unknown): RouteStation[] {
+  const root = asObject(unwrap(payload));
+
+  if (!root) return [];
+
+  const routeArray = [
+    root.routes,
+    root.stations,
+    root.route_stations,
+    root.cities,
+    root.stops,
+    root.station_list,
+  ].find(Array.isArray) as unknown[] | undefined;
+
+  return (routeArray ?? [])
+    .map(stationFrom)
+    .filter((station): station is RouteStation => Boolean(station))
+    .sort((a, b) => a.sequence - b.sequence);
+}
+
+/* ----------------------------------------
+   Shohoz API response parsing
+---------------------------------------- */
+
+function findTrainRecords(
+  value: unknown,
+  output: Record<string, any>[] = [],
+  depth = 0
+): Record<string, any>[] {
+  if (depth > 9 || value === null || value === undefined) {
+    return output;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      findTrainRecords(item, output, depth + 1);
+    }
+
+    return output;
+  }
+
+  const obj = asObject(value);
+
+  if (!obj) return output;
+
+  const hasTrainIdentifier =
+    obj.train_model !== undefined ||
+    obj.train_number !== undefined ||
+    obj.trip_number !== undefined;
+
+  if (
+    hasTrainIdentifier &&
+    (
+      Array.isArray(obj.seat_types) ||
+      Array.isArray(obj.seat_classes) ||
+      obj.route_id !== undefined
+    )
+  ) {
+    output.push(obj);
+  }
+
+  for (const [key, child] of Object.entries(obj)) {
+    if (
+      child &&
+      typeof child === "object" &&
+      key !== "meta"
+    ) {
+      findTrainRecords(child, output, depth + 1);
+    }
+  }
+
+  return output;
+}
+
+function seatFrom(value: unknown): SeatClass | null {
+  const obj = asObject(value);
+
   if (!obj) return null;
 
   const type = String(
-    obj.type ?? obj.seat_type ?? obj.class_name ?? obj.name ?? "",
+    obj.type ??
+    obj.seat_type ??
+    obj.class_name ??
+    obj.name ??
+    ""
   );
 
   if (!type) return null;
 
-  const counts = objectOf(obj.seat_counts ?? obj.counts ?? obj.availability);
+  const counts = asObject(
+    obj.seat_counts ??
+    obj.counts ??
+    obj.availability
+  );
 
-  const rawCount =
+  const raw =
     counts?.online ??
     obj.available_seats ??
     obj.available_count ??
     obj.seats_available;
 
   const count =
-    rawCount === undefined || rawCount === null || rawCount === ""
+    raw === undefined || raw === null || raw === ""
       ? null
-      : Number(rawCount);
+      : Number(raw);
 
   return {
     type,
     online:
-      count !== null && Number.isFinite(count) ? Math.max(0, count) : null,
-    fare: (obj.fare ?? obj.price) as string | number | undefined,
+      count !== null && Number.isFinite(count)
+        ? Math.max(0, count)
+        : null,
+    fare: obj.fare ?? obj.price,
   };
 }
 
-function normalizeCombination(value: unknown): Combination | null {
-  const obj = objectOf(value);
-  if (!obj) return null;
-
-  const from = String(
-    obj.from_station_name ??
-      obj.from_city_name ??
-      obj.from_name ??
-      obj.from ??
-      obj.origin ??
-      "",
-  );
-
-  const to = String(
-    obj.to_station_name ??
-      obj.to_city_name ??
-      obj.to_name ??
-      obj.to ??
-      obj.destination ??
-      "",
-  );
-
-  if (!from || !to) return null;
-
-  const seatClasses = getArray(obj, [
-    "seat_types",
-    "seat_classes",
-    "classes",
-    "availability",
-  ])
-    .map(normalizeSeat)
-    .filter((seat): seat is SeatClass => Boolean(seat));
-
-  const rawCount =
-    obj.available_count ??
-    obj.available_seats ??
-    obj.online_seats ??
-    obj.total_available_seats;
-
-  const count =
-    rawCount === undefined || rawCount === null || rawCount === ""
-      ? null
-      : Number(rawCount);
-
-  const knownCounts = seatClasses
-    .map((seat) => seat.online)
-    .filter((number): number is number => number !== null);
-
-  const availableCount =
-    count !== null && Number.isFinite(count)
-      ? Math.max(0, count)
-      : knownCounts.length
-        ? knownCounts.reduce((sum, number) => sum + number, 0)
-        : null;
-
-  return {
-    from,
-    to,
-    fromId: String(obj.from_station_id ?? obj.from_city_id ?? obj.from_id ?? "") || undefined,
-    toId: String(obj.to_station_id ?? obj.to_city_id ?? obj.to_id ?? "") || undefined,
-    availableCount,
-    seatClasses,
-  };
-}
-
-function extractRouteData(payload: unknown): {
-  stations: RouteStation[];
-  combinations: Combination[];
-} {
-  const root = objectOf(unwrap(payload));
-
-  if (!root) return { stations: [], combinations: [] };
-
-  const stations = getArray(root, [
-    "stations",
-    "route_stations",
-    "cities",
-    "stops",
-    "station_list",
-    "routes",
-  ])
-    .map(normalizeStation)
-    .filter((station): station is RouteStation => Boolean(station))
-    .sort((a, b) => a.sequence - b.sequence);
-
-  const combinations = getArray(root, [
-    "combinations",
-    "segments",
-    "journeys",
-    "results",
-    "available_routes",
-  ])
-    .map(normalizeCombination)
-    .filter((item): item is Combination => Boolean(item));
-
-  return { stations, combinations };
-}
-
-function extractTrainObjects(payload: unknown): UnknownObject[] {
-  const found: UnknownObject[] = [];
-  const seen = new Set<unknown>();
-  const queue: Array<{ value: unknown; depth: number }> = [
-    { value: payload, depth: 0 },
-  ];
-
-  while (queue.length) {
-    const current = queue.shift()!;
-    const { value, depth } = current;
-
-    if (depth > 7 || value === null || value === undefined) continue;
-    if (seen.has(value)) continue;
-
-    if (typeof value === "object") seen.add(value);
-
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        queue.push({ value: item, depth: depth + 1 });
-      }
-      continue;
-    }
-
-    const obj = objectOf(value);
-    if (!obj) continue;
-
-    const hasTrainIdentity = [
-      "trip_number",
-      "train_number",
-      "train_model",
-      "train_no",
-    ].some((key) => obj[key] !== undefined && obj[key] !== null);
-
-    if (hasTrainIdentity) found.push(obj);
-
-    for (const [key, child] of Object.entries(obj)) {
-      if (
-        child &&
-        typeof child === "object" &&
-        !["config", "headers"].includes(key)
-      ) {
-        queue.push({ value: child, depth: depth + 1 });
-      }
-    }
-  }
-
-  return found;
-}
-
-function extractAvailability(
-  payload: unknown,
-  selectedTrainModel: string,
-): Combination | null {
-  const wanted = getRailwayModel(selectedTrainModel);
-  const candidates = extractTrainObjects(payload);
-
-  for (const train of candidates) {
-    const ids = [
-      train.trip_number,
-      train.train_number,
-      train.train_model,
-      train.train_no,
-      train.number,
-    ]
-      .map((value) => getRailwayModel(value as string | number | undefined))
-      .filter(Boolean);
-
-    if (wanted && !ids.includes(wanted)) continue;
-
-    const rawSeats = getArray(train, [
-      "seat_types",
-      "seat_classes",
-      "classes",
-    ]);
-
-    const seatClasses = rawSeats
-      .map(normalizeSeat)
-      .filter((seat): seat is SeatClass => Boolean(seat));
-
-    const counts = seatClasses
-      .map((seat) => seat.online)
-      .filter((count): count is number => count !== null);
-
-    if (!counts.length) continue;
-
-    const availableCount = counts.reduce((sum, count) => sum + count, 0);
-
-    return {
-      from: "",
-      to: "",
-      availableCount,
-      seatClasses,
-      searchStatus: availableCount > 0 ? "available" : "sold",
-    };
-  }
-
-  return null;
-}
-
-function seatClassLabel(value: string): string {
+function classLabel(value: string): string {
   const labels: Record<string, string> = {
     S_CHAIR: "Shovon Chair",
     SHOVAN: "Shovon",
@@ -466,55 +300,144 @@ function seatClassLabel(value: string): string {
 }
 
 function money(value?: string | number): string {
-  if (value === undefined || value === null || value === "") return "Fare not returned";
+  if (value === undefined || value === null || value === "") {
+    return "Fare not returned";
+  }
 
-  const amount = Number(value);
+  const number = Number(value);
 
-  return Number.isFinite(amount)
+  return Number.isFinite(number)
     ? new Intl.NumberFormat("en-BD", {
         style: "currency",
         currency: "BDT",
         maximumFractionDigits: 0,
-      }).format(amount)
+      }).format(number)
     : String(value);
 }
+
+function getTrainModel(record: Record<string, any>): string {
+  return String(
+    record.train_model ??
+    record.train_number ??
+    ""
+  );
+}
+
+function extractSingleTrainAvailability(
+  payload: unknown,
+  expectedModel: string
+): {
+  availableCount: number | null;
+  seatClasses: SeatClass[];
+} | null {
+  const records = findTrainRecords(payload);
+
+  const expected = String(expectedModel).trim();
+
+  const matchingTrain = records.find((record) => {
+    return getTrainModel(record).trim() === expected;
+  });
+
+  if (!matchingTrain) return null;
+
+  const rawSeats =
+    matchingTrain.seat_types ??
+    matchingTrain.seat_classes ??
+    [];
+
+  const seatClasses = Array.isArray(rawSeats)
+    ? rawSeats
+        .map(seatFrom)
+        .filter((seat): seat is SeatClass => Boolean(seat))
+    : [];
+
+  const rawCount =
+    matchingTrain.available_count ??
+    matchingTrain.available_seats ??
+    matchingTrain.online_seats ??
+    matchingTrain.total_available_seats;
+
+  const total = seatClasses.reduce(
+    (sum, seat) => sum + (seat.online ?? 0),
+    0
+  );
+
+  const availableCount =
+    rawCount !== undefined &&
+    rawCount !== null &&
+    rawCount !== ""
+      ? Number(rawCount)
+      : seatClasses.some((seat) => seat.online !== null)
+        ? total
+        : null;
+
+  return {
+    availableCount:
+      availableCount !== null &&
+      Number.isFinite(availableCount)
+        ? Math.max(0, availableCount)
+        : null,
+    seatClasses,
+  };
+}
+
+/* ----------------------------------------
+   Main Single Train Page
+---------------------------------------- */
 
 function AlternativeSeatsContent() {
   const params = useParams<{ trainId: string }>();
   const searchParams = useSearchParams();
 
   const pathTrainId = String(params?.trainId ?? "");
+
   const queryFrom = searchParams.get("from") ?? "";
   const queryTo = searchParams.get("to") ?? "";
   const queryDate = searchParams.get("date") ?? "";
   const queryRouteId = searchParams.get("routeId") ?? "";
 
-  const [stored, setStored] = useState<StoredAlternative | null>(null);
+  const queryModel =
+    searchParams.get("trainModel") ??
+    searchParams.get("model") ??
+    "";
+
+  const [stored, setStored] =
+    useState<StoredAlternative | null>(null);
+
   const [loadedStored, setLoadedStored] = useState(false);
 
-  const [apiState, setApiState] = useState<ApiState>("idle");
+  const [apiState, setApiState] =
+    useState<ApiState>("loading");
+
   const [apiMessage, setApiMessage] = useState("");
-  const [stations, setStations] = useState<RouteStation[]>([]);
-  const [combinations, setCombinations] = useState<Combination[]>([]);
 
-  const [fromFilter, setFromFilter] = useState("all");
-  const [toFilter, setToFilter] = useState("all");
-  const [availableOnly, setAvailableOnly] = useState(false);
-  const [searchText, setSearchText] = useState("");
+  const [stations, setStations] =
+    useState<RouteStation[]>([]);
 
-  const [alternativeState, setAlternativeState] =
-    useState<AlternativeState>("idle");
-  const [alternativeMessage, setAlternativeMessage] = useState("");
-  const [alternativeResults, setAlternativeResults] = useState<Combination[]>([]);
-  const [currentCandidate, setCurrentCandidate] = useState("");
+  const [availability, setAvailability] =
+    useState<Record<string, AvailabilityResult>>({});
+
+  const [completedRequests, setCompletedRequests] =
+    useState(0);
+
+  const [totalRequests, setTotalRequests] =
+    useState(0);
+
+  const [isChecking, setIsChecking] = useState(false);
+
+  /* ----------------------------------------
+     Read existing sessionStorage
+  ---------------------------------------- */
 
   useEffect(() => {
     try {
       const raw =
         sessionStorage.getItem("SeatKoi_alternative_search") ??
-        sessionStorage.getItem("railkhoj-alternative-search");
+        sessionStorage.getItem("SeatKoi_alternative_search");
 
-      if (raw) setStored(JSON.parse(raw) as StoredAlternative);
+      if (raw) {
+        setStored(JSON.parse(raw) as StoredAlternative);
+      }
     } catch {
       setStored(null);
     } finally {
@@ -525,742 +448,885 @@ function AlternativeSeatsContent() {
   const train = stored?.train;
 
   const from = displayName(
-    queryFrom || stored?.route?.from || train?.origin_city_name,
+    queryFrom ||
+    stored?.route?.from ||
+    train?.origin_city_name
   );
 
   const to = displayName(
-    queryTo || stored?.route?.to || train?.destination_city_name,
+    queryTo ||
+    stored?.route?.to ||
+    train?.destination_city_name
   );
 
-  const date = queryDate || stored?.route?.date || train?.departure_full_date || "";
-  const journeyDate = normalizeJourneyDate(date);
+  const date =
+    queryDate ||
+    stored?.route?.date ||
+    train?.departure_full_date ||
+    "";
 
   const trainId =
     pathTrainId ||
-    String(stored?.trainId ?? train?.trip_number ?? train?.train_model ?? "");
+    String(stored?.trainId ?? "");
 
-  const trainModel = getRailwayModel(
-    train?.trip_number,
-    train?.train_model,
-    stored?.trainId,
-    pathTrainId,
+  // Railway train_model is preferred over the local page ID.
+  const trainModel = String(
+    queryModel ||
+    train?.train_model ||
+    stored?.trainId ||
+    pathTrainId ||
+    ""
   );
 
-  const loadRouteData = useCallback(async () => {
-    if (!trainModel) {
-      setApiState("error");
-      setApiMessage("Could not determine the Railway train model/number. Return to results and select the train again.");
-      return;
-    }
+  const trainName = displayName(
+    train?.trip_number || `Train ${trainId}`
+  );
 
-    if (!journeyDate) {
+  /* ----------------------------------------
+     Strategy A: Availability Search
+
+     Starting station remains fixed.
+     Destinations are searched backwards
+     from the final station.
+  ---------------------------------------- */
+
+  const runAvailabilitySearch = useCallback(
+    async (routeStations: RouteStation[]) => {
+      if (routeStations.length < 2) {
+        setApiMessage("Not enough route stations to search availability.");
+        return;
+      }
+
+      const journeyDate = normalizeDate(date);
+
+      if (!journeyDate) {
+        setApiMessage(
+          "Journey date is missing or invalid. Please provide YYYY-MM-DD in the page URL."
+        );
+        return;
+      }
+
+      const startingStation = routeStations[0];
+
+      /*
+       * Strategy A:
+       *
+       * Dhaka → Sylhet
+       * Dhaka → Maijgaon
+       * Dhaka → Kulaura
+       * Dhaka → Bhanugach
+       * Dhaka → Sreemangal
+       *
+       * Reverse destination order.
+       */
+
+      const destinations = routeStations
+        .slice(1)
+        .reverse();
+
+      const initialResults: Record<string, AvailabilityResult> = {};
+
+      for (const station of destinations) {
+        initialResults[station.id] = {
+          status: "pending",
+          availableCount: null,
+          seatClasses: [],
+        };
+      }
+
+      setAvailability(initialResults);
+      setCompletedRequests(0);
+      setTotalRequests(destinations.length);
+      setIsChecking(true);
+
+      let completed = 0;
+      let nextIndex = 0;
+
+      // Maximum 3 simultaneous API requests.
+      const CONCURRENCY = 3;
+
+      const worker = async () => {
+        while (nextIndex < destinations.length) {
+          const currentIndex = nextIndex++;
+          const destination = destinations[currentIndex];
+
+          try {
+            const fromCityId = Number(startingStation.id);
+            const toCityId = Number(destination.id);
+
+            if (
+              !Number.isInteger(fromCityId) ||
+              !Number.isInteger(toCityId)
+            ) {
+              throw new Error(
+                "Station ID is not a valid city_id. Check the train-route API response."
+              );
+            }
+
+            if (fromCityId === toCityId) {
+              throw new Error("Starting and destination stations are identical.");
+            }
+
+            /*
+             * Existing API:
+             * POST /api/search-trips
+             *
+             * Do not call Shohoz directly from the browser.
+             */
+
+            const response = await fetch("/api/search-trips", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+              },
+              cache: "no-store",
+              body: JSON.stringify({
+                from_city_id: fromCityId,
+                to_city_id: toCityId,
+                date_of_journey: journeyDate,
+              }),
+            });
+
+            const payload: unknown = await response.json();
+
+            const envelope = asObject(payload);
+
+            if (!response.ok || envelope?.error) {
+              throw new Error(
+                String(
+                  envelope?.error ??
+                  `Availability request failed (${response.status}).`
+                )
+              );
+            }
+
+            /*
+             * Filter only the selected train.
+             */
+
+            const result = extractSingleTrainAvailability(
+              payload,
+              trainModel
+            );
+
+            if (!result) {
+              setAvailability((previous) => ({
+                ...previous,
+                [destination.id]: {
+                  status: "unknown",
+                  availableCount: null,
+                  seatClasses: [],
+                  message: "Selected train not found in API response.",
+                },
+              }));
+            } else {
+              const status =
+                result.availableCount === null
+                  ? "unknown"
+                  : result.availableCount > 0
+                    ? "available"
+                    : "sold";
+
+              /*
+               * Update UI immediately when this
+               * individual API request completes.
+               */
+
+              setAvailability((previous) => ({
+                ...previous,
+                [destination.id]: {
+                  status,
+                  availableCount: result.availableCount,
+                  seatClasses: result.seatClasses,
+                },
+              }));
+            }
+          } catch (error) {
+            setAvailability((previous) => ({
+              ...previous,
+              [destination.id]: {
+                status: "error",
+                availableCount: null,
+                seatClasses: [],
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : "Availability request failed.",
+              },
+            }));
+          } finally {
+            completed += 1;
+            setCompletedRequests(completed);
+          }
+        }
+      };
+
+      await Promise.all(
+        Array.from(
+          {
+            length: Math.min(CONCURRENCY, destinations.length),
+          },
+          () => worker()
+        )
+      );
+
+      setIsChecking(false);
+    },
+    [date, trainModel]
+  );
+
+  /* ----------------------------------------
+     Load Route API
+  ---------------------------------------- */
+
+  const loadRouteData = useCallback(async () => {
+    if (!trainId) {
       setApiState("error");
-      setApiMessage("A valid journey date is required in YYYY-MM-DD format.");
+      setApiMessage("Train ID is missing.");
       return;
     }
 
     setApiState("loading");
     setApiMessage("");
-    setAlternativeState("idle");
-    setAlternativeResults([]);
-    setAlternativeMessage("");
+    setStations([]);
+    setAvailability({});
+    setCompletedRequests(0);
+    setTotalRequests(0);
 
     try {
       const query = new URLSearchParams({
-        model: trainModel,
-        date: journeyDate,
+        model: trainId,
       });
 
       if (queryFrom || stored?.route?.from) {
-        query.set("from", queryFrom || stored?.route?.from || "");
+        query.set(
+          "from",
+          queryFrom || stored?.route?.from || ""
+        );
       }
 
       if (queryTo || stored?.route?.to) {
-        query.set("to", queryTo || stored?.route?.to || "");
+        query.set(
+          "to",
+          queryTo || stored?.route?.to || ""
+        );
       }
 
-      if (queryRouteId) query.set("routeId", queryRouteId);
+      if (date) {
+        query.set("date", date);
+      }
+
+      if (queryRouteId) {
+        query.set("routeId", queryRouteId);
+      }
 
       const response = await fetch(
         `/api/train-route?${query.toString()}`,
-        { cache: "no-store" },
+        {
+          method: "GET",
+          cache: "no-store",
+        }
       );
 
       const payload: unknown = await response.json();
-      const envelope = objectOf(payload);
 
-      if (!response.ok || envelope?.ok === false || envelope?.error) {
+      const envelope = asObject(payload);
+
+      if (
+        !response.ok ||
+        envelope?.ok === false ||
+        envelope?.error
+      ) {
         throw new Error(
-          String(envelope?.error ?? `Route API request failed (${response.status}).`),
+          String(
+            envelope?.error ??
+            `Route API request failed (${response.status}).`
+          )
         );
       }
 
-      const parsed = extractRouteData(payload);
+      const routeStations = extractStations(payload);
 
-      setStations(parsed.stations);
-      setCombinations(parsed.combinations);
-
-      if (!parsed.stations.length && !parsed.combinations.length) {
-        setApiState("error");
-        setApiMessage("The Railway API returned no route stations or seat combinations. Verify the train model and journey date.");
-        return;
+      if (routeStations.length < 2) {
+        throw new Error(
+          "The route API did not return enough stations."
+        );
       }
 
+      /*
+       * Show route immediately.
+       * Availability requests run afterwards.
+       */
+
+      setStations(routeStations);
       setApiState("success");
 
-      if (!parsed.combinations.length) {
-        setApiMessage("Route loaded. Seat availability must be checked separately for each station pair.");
-      }
+      /*
+       * Start Strategy A automatically.
+       */
+
+      void runAvailabilitySearch(routeStations);
+
     } catch (error) {
       setApiState("error");
+
       setApiMessage(
-        error instanceof Error ? error.message : "Could not connect to the route service.",
+        error instanceof Error
+          ? error.message
+          : "Could not load train route."
       );
+
+      setIsChecking(false);
     }
   }, [
+    trainId,
     trainModel,
-    journeyDate,
     queryFrom,
     queryTo,
     queryRouteId,
+    date,
     stored,
+    runAvailabilitySearch,
   ]);
 
   useEffect(() => {
-    if (loadedStored) void loadRouteData();
+    if (loadedStored) {
+      void loadRouteData();
+    }
   }, [loadedStored, loadRouteData]);
 
-  const filteredCombinations = useMemo(() => {
-    const query = searchText.trim().toLocaleLowerCase();
+  /* ----------------------------------------
+     Summary
+  ---------------------------------------- */
 
-    return combinations.filter((item) => {
-      const fromOk =
-        fromFilter === "all" ||
-        item.fromId === fromFilter ||
-        item.from === fromFilter;
-
-      const toOk =
-        toFilter === "all" ||
-        item.toId === toFilter ||
-        item.to === toFilter;
-
-      const availableOk =
-        !availableOnly ||
-        (item.availableCount !== null && item.availableCount > 0);
-
-      const searchOk =
-        !query ||
-        `${item.from} ${item.to} ${item.seatClasses.map((seat) => seat.type).join(" ")}`
-          .toLocaleLowerCase()
-          .includes(query);
-
-      return fromOk && toOk && availableOk && searchOk;
-    });
-  }, [combinations, fromFilter, toFilter, availableOnly, searchText]);
-
-  const availableCount = combinations.filter(
-    (item) => item.availableCount !== null && item.availableCount > 0,
+  const availableCount = Object.values(availability).filter(
+    (item) => item.status === "available"
   ).length;
 
-  const soldCount = combinations.filter(
-    (item) => item.availableCount === 0,
+  const soldCount = Object.values(availability).filter(
+    (item) => item.status === "sold"
   ).length;
 
-  const runFirstWaySearch = useCallback(async () => {
-    setAlternativeState("searching");
-    setAlternativeResults([]);
-    setAlternativeMessage("");
-    setCurrentCandidate("");
+  const failedCount = Object.values(availability).filter(
+    (item) => item.status === "error"
+  ).length;
 
-    try {
-      if (!stations.length) {
-        throw new Error("The route has no stations to search.");
-      }
-
-      const fromIndex = stations.findIndex(
-        (station) => normalizeName(station.name) === normalizeName(from),
-      );
-
-      const toIndex = stations.findIndex(
-        (station) => normalizeName(station.name) === normalizeName(to),
-      );
-
-      if (fromIndex < 0 || toIndex < 0 || fromIndex >= toIndex) {
-        throw new Error(
-          "The starting station and destination could not be matched to the selected train's forward route.",
-        );
-      }
-
-      const startStation = stations[fromIndex];
-
-      if (
-        !startStation.id ||
-        startStation.id === startStation.name
-      ) {
-        throw new Error(
-          `The route API did not return a usable station ID for ${startStation.name}. The existing search API requires station IDs.`,
-        );
-      }
-
-      // Destination-first: Sylhet, Maijgaon, Kulaura, ... in route order.
-      const candidates = stations
-        .slice(fromIndex + 1, toIndex + 1)
-        .reverse();
-
-      const checked: Combination[] = [];
-      let foundAvailable = false;
-
-      for (const candidate of candidates) {
-        if (!candidate.id || candidate.id === candidate.name) {
-          checked.push({
-            from: startStation.name,
-            to: candidate.name,
-            fromId: startStation.id,
-            toId: candidate.id || undefined,
-            availableCount: null,
-            seatClasses: [],
-            searchStatus: "unknown",
-          });
-          continue;
-        }
-
-        setCurrentCandidate(`${startStation.name} → ${candidate.name}`);
-
-        const response = await fetch("/api/search-trips", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          cache: "no-store",
-          body: JSON.stringify({
-            from_city_id: startStation.id,
-            to_city_id: candidate.id,
-            from_city: startStation.name,
-            to_city: candidate.name,
-            date_of_journey: journeyDate,
-          }),
-        });
-
-        const payload = (await response.json()) as SearchApiResponse;
-
-        if (
-          !response.ok ||
-          payload.ok === false ||
-          Boolean(payload.error)
-        ) {
-          checked.push({
-            from: startStation.name,
-            to: candidate.name,
-            fromId: startStation.id,
-            toId: candidate.id,
-            availableCount: null,
-            seatClasses: [],
-            searchStatus: "unknown",
-          });
-          continue;
-        }
-
-        // Only trust a result when the response contains the selected train
-        // and actual seat counts. Missing counts are not treated as sold out.
-        const availability = extractAvailability(
-          payload.data ?? payload,
-          trainModel,
-        );
-
-        if (!availability) {
-          checked.push({
-            from: startStation.name,
-            to: candidate.name,
-            fromId: startStation.id,
-            toId: candidate.id,
-            availableCount: null,
-            seatClasses: [],
-            searchStatus: "unknown",
-          });
-          continue;
-        }
-
-        const result: Combination = {
-          ...availability,
-          from: startStation.name,
-          to: candidate.name,
-          fromId: startStation.id,
-          toId: candidate.id,
-        };
-
-        checked.push(result);
-
-        if (
-          result.availableCount !== null &&
-          result.availableCount > 0
-        ) {
-          foundAvailable = true;
-          break;
-        }
-      }
-
-      setAlternativeResults(checked);
-      setAlternativeState("complete");
-      setCurrentCandidate("");
-
-      if (foundAvailable) {
-        setAlternativeMessage(
-          "An alternative with seats was reported. Confirm the final availability before booking.",
-        );
-      } else if (checked.some((item) => item.searchStatus === "unknown")) {
-        setAlternativeMessage(
-          "Some station pairs could not be confirmed because the search response did not contain a matching train and usable seat counts. These are unknown, not confirmed sold out.",
-        );
-      } else {
-        setAlternativeMessage(
-          "No available seats were returned for the checked destinations on this train.",
-        );
-      }
-    } catch (error) {
-      setAlternativeState("error");
-      setAlternativeMessage(
-        error instanceof Error
-          ? error.message
-          : "Alternative search failed.",
-      );
-      setCurrentCandidate("");
-    }
-  }, [stations, from, to, journeyDate, trainModel]);
+  const destinationStations = stations.slice(1);
 
   if (!loadedStored) {
     return (
       <main className="rk-alt rk-alt--loading">
         <div className="rk-alt__loading-card">
-          <span className="rk-alt__spinner" />
+          <span className="rk-alt__loading-spinner" />
           Loading selected train…
         </div>
       </main>
     );
   }
 
+  /* ----------------------------------------
+     UI
+  ---------------------------------------- */
+
   return (
     <main className="rk-alt">
+
+      {/* Header */}
+
       <header className="rk-alt__header">
-        <Link href="/search" className="rk-alt__brand" aria-label="RailKhoj home">
-          <span className="rk-alt__brand-mark" aria-hidden="true">▤</span>
+        <Link
+          href="/search"
+          className="rk-alt__brand"
+          aria-label="RailKhoj home"
+        >
+          <span className="rk-alt__brand-mark">▤</span>
+
           <span>
             <strong>RailKhoj</strong>
             <small>Bangladesh Railway</small>
           </span>
         </Link>
 
-        <Link href="/search/results" className="rk-alt__back">
-          ← Back to train results
+        <Link
+          href="/search/results"
+          className="rk-alt__back"
+        >
+          <span>←</span>
+          Back to train results
         </Link>
       </header>
 
+      {/* Train Information */}
+
       <section className="rk-alt__hero">
+
         <div className="rk-alt__hero-top">
           <div>
-            <span className="rk-alt__eyebrow">ALTERNATIVE SEAT FINDER</span>
-            <h1>Find an alternative destination</h1>
-            <p>Keep your starting station and search earlier stops on this train.</p>
+            <span className="rk-alt__eyebrow">
+              SINGLE TRAIN SEAT AVAILABILITY
+            </span>
+
+            <h1>{trainName}</h1>
+
+            <p>
+              Explore available seats from your starting
+              station to every intermediate station.
+            </p>
           </div>
 
           <div className="rk-alt__train-chip">
-            <span aria-hidden="true">▤</span>
-            <div>
+            <span className="rk-alt__train-chip-icon">
+              ▤
+            </span>
+
+            <span>
               <small>SELECTED TRAIN</small>
-              <strong>{displayName(train?.trip_number || `Train ${trainId || "—"}`)}</strong>
-              <em>Model: {trainModel || "—"}</em>
-            </div>
+              <strong>{trainName}</strong>
+              <em>Train model: {trainModel}</em>
+            </span>
           </div>
         </div>
 
         <div className="rk-alt__route-summary">
+
           <div>
             <span>STARTING STATION</span>
             <strong>{from}</strong>
-            <small>Keep this station fixed</small>
+            <small>Fixed starting point</small>
           </div>
-          <span className="rk-alt__route-arrow" aria-hidden="true">→</span>
+
+          <span className="rk-alt__route-arrow">
+            ○ ⟶ ○
+          </span>
+
           <div>
             <span>DESTINATION</span>
             <strong>{to}</strong>
-            <small>Try earlier stops if needed</small>
+            <small>Original destination</small>
           </div>
+
           <div className="rk-alt__date">
             <span>JOURNEY DATE</span>
             <strong>{formatDate(date)}</strong>
-            <small>{train?.travel_time || "Selected journey"}</small>
+            <small>
+              {train?.travel_time
+                ? `Journey · ${train.travel_time}`
+                : "Selected journey"}
+            </small>
           </div>
+
         </div>
       </section>
 
+      {/* Availability Summary */}
+
+      <section className="rk-alt__stats">
+
+        <article className="rk-alt__stat">
+          <span className="rk-alt__stat-icon rk-alt__stat-icon--green">
+            ✓
+          </span>
+
+          <div>
+            <strong>{availableCount}</strong>
+            <span>Station combinations with seats</span>
+          </div>
+        </article>
+
+        <article className="rk-alt__stat">
+          <span className="rk-alt__stat-icon rk-alt__stat-icon--red">
+            ×
+          </span>
+
+          <div>
+            <strong>{soldCount}</strong>
+            <span>Combinations sold out</span>
+          </div>
+        </article>
+
+        <article className="rk-alt__stat">
+          <span className="rk-alt__stat-icon rk-alt__stat-icon--neutral">
+            ↔
+          </span>
+
+          <div>
+            <strong>
+              {completedRequests}/{totalRequests}
+            </strong>
+            <span>Availability requests completed</span>
+          </div>
+        </article>
+
+      </section>
+
+      {/* Main Route Section */}
+
       <section className="rk-alt__content">
+
         <div className="rk-alt__content-heading">
+
           <div>
             <h2>Complete train route</h2>
-            <p>Stations are loaded from the route API in journey order.</p>
+
+            <p>
+              Follow every stop and check seat availability
+              from {from} to each station.
+            </p>
           </div>
+
           <button
             type="button"
             className="rk-alt__refresh"
             onClick={() => void loadRouteData()}
-            disabled={apiState === "loading"}
+            disabled={apiState === "loading" || isChecking}
           >
-            ↻ {apiState === "loading" ? "Refreshing…" : "Refresh route"}
+            <span>↻</span>
+            {apiState === "loading" || isChecking
+              ? "Checking…"
+              : "Refresh route"}
           </button>
+
         </div>
 
+        {/* Route Loading */}
+
         {apiState === "loading" && (
-          <div className="rk-alt__notice">
+          <div className="rk-alt__notice rk-alt__notice--loading">
             <span className="rk-alt__spinner" />
-            Loading route…
+            Loading complete train route…
           </div>
         )}
 
+        {/* Route Error */}
+
         {apiState === "error" && (
           <div className="rk-alt__notice rk-alt__notice--error">
-            <strong>Could not load route</strong>
+            <strong>Could not load train route</strong>
+
             <p>{apiMessage}</p>
-            <button type="button" onClick={() => void loadRouteData()}>
+
+            <button
+              type="button"
+              onClick={() => void loadRouteData()}
+            >
               Try again
             </button>
           </div>
         )}
 
-        {apiState === "success" && apiMessage && (
-          <div className="rk-alt__notice rk-alt__notice--info">
-            <span aria-hidden="true">ⓘ</span>
-            <p>{apiMessage}</p>
-          </div>
-        )}
+        {/* Route Progress */}
 
-        {stations.length > 0 && (
-          <div className="rk-alt__route-stations">
-            <div className="rk-alt__route-stations-heading">
-              <strong>All route stations</strong>
-              <span>{stations.length} stops · Start to destination</span>
-            </div>
-
-            <div className="rk-alt__route-track">
-              {stations.map((station, index) => {
-                const first = normalizeName(station.name) === normalizeName(from);
-                const last = normalizeName(station.name) === normalizeName(to);
-
-                return (
-                  <div
-                    className={[
-                      "rk-alt__station",
-                      first ? "rk-alt__station--start" : "",
-                      last ? "rk-alt__station--end" : "",
-                    ].filter(Boolean).join(" ")}
-                    key={`${station.id || station.name}-${index}`}
-                  >
-                    <span className="rk-alt__station-number">
-                      {String(index + 1).padStart(2, "0")}
-                    </span>
-                    <div className="rk-alt__station-card">
-                      <strong>{displayName(station.name)}</strong>
-                      <small>
-                        {station.departure
-                          ? `Dep ${station.departure}`
-                          : station.arrival
-                            ? `Arr ${station.arrival}`
-                            : "Time not returned"}
-                      </small>
-                      {first && <em>START</em>}
-                      {last && <em>DESTINATION</em>}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        <section className="rk-alt__alternative">
-          <div className="rk-alt__alternative-heading">
-            <div>
-              <span className="rk-alt__eyebrow">WAY 1</span>
-              <h2>Search earlier destinations</h2>
-              <p>
-                Search the original destination first, then move backward
-                through the route while keeping the starting station fixed.
-              </p>
-            </div>
-            <button
-              type="button"
-              className="rk-alt__primary"
-              onClick={() => void runFirstWaySearch()}
-              disabled={
-                apiState !== "success" ||
-                alternativeState === "searching" ||
-                !stations.length
-              }
-            >
-              {alternativeState === "searching"
-                ? "Searching…"
-                : "Find alternative seats"}
-            </button>
-          </div>
-
-          {alternativeState === "searching" && (
+        {apiState === "success" && (
+          <>
             <div className="rk-alt__progress">
-              <span className="rk-alt__spinner" />
-              <div>
-                <strong>Checking station combinations</strong>
-                <p>{currentCandidate || "Preparing route stations…"}</p>
-              </div>
-            </div>
-          )}
+              <div className="rk-alt__progress-info">
+                <strong>
+                  {isChecking
+                    ? "Checking seat availability"
+                    : "Availability checking completed"}
+                </strong>
 
-          {alternativeMessage && (
-            <div
-              className={`rk-alt__notice ${
-                alternativeState === "error"
-                  ? "rk-alt__notice--error"
-                  : "rk-alt__notice--info"
-              }`}
-            >
-              <p>{alternativeMessage}</p>
-            </div>
-          )}
-
-          {alternativeResults.length > 0 && (
-            <div className="rk-alt__alternative-results">
-              <div className="rk-alt__result-caption">
-                Checked <strong>{alternativeResults.length}</strong> destination
-                {alternativeResults.length === 1 ? "" : "s"}
+                <span>
+                  {completedRequests} of {totalRequests} requests
+                </span>
               </div>
 
-              {alternativeResults.map((item, index) => (
-                <article
-                  className={`rk-alt__result rk-alt__result--${item.searchStatus || "unknown"}`}
-                  key={`${item.from}-${item.to}-${index}`}
-                >
-                  <div className="rk-alt__result-route">
-                    <small>FROM</small>
-                    <strong>{item.from}</strong>
-                    <span aria-hidden="true">→</span>
-                    <small>TO</small>
-                    <strong>{item.to}</strong>
-                  </div>
-
-                  <div className="rk-alt__result-status">
-                    {item.searchStatus === "available" && (
-                      <>
-                        <strong>{item.availableCount}</strong>
-                        <span>seats reported</span>
-                        <em>AVAILABLE</em>
-                      </>
-                    )}
-                    {item.searchStatus === "sold" && (
-                      <>
-                        <strong>0</strong>
-                        <span>seats reported</span>
-                        <em>SOLD OUT</em>
-                      </>
-                    )}
-                    {item.searchStatus === "unknown" && (
-                      <>
-                        <strong>—</strong>
-                        <span>count not confirmed</span>
-                        <em>UNKNOWN</em>
-                      </>
-                    )}
-                  </div>
-
-                  {item.seatClasses.length > 0 && (
-                    <div className="rk-alt__classes">
-                      {item.seatClasses.map((seat, seatIndex) => (
-                        <div
-                          className="rk-alt__class"
-                          key={`${seat.type}-${seatIndex}`}
-                        >
-                          <div>
-                            <strong>{seatClassLabel(seat.type)}</strong>
-                            <small>{seat.type}</small>
-                          </div>
-                          <strong>
-                            {seat.online === null ? "—" : seat.online}
-                            <small> seats</small>
-                          </strong>
-                          <span>{money(seat.fare)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="rk-alt__existing">
-          <div className="rk-alt__content-heading">
-            <div>
-              <h2>API-returned station combinations</h2>
-              <p>
-                These combinations are displayed separately from the
-                sequential alternative search.
-              </p>
-            </div>
-          </div>
-
-          <div className="rk-alt__filters">
-            <label className="rk-alt__filter">
-              <span>FROM STATION</span>
-              <select
-                value={fromFilter}
-                onChange={(event) => setFromFilter(event.target.value)}
-              >
-                <option value="all">All starting stations</option>
-                {stations.map((station, index) => (
-                  <option
-                    key={`${station.id}-${index}`}
-                    value={station.id || station.name}
-                  >
-                    {station.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="rk-alt__filter">
-              <span>TO STATION</span>
-              <select
-                value={toFilter}
-                onChange={(event) => setToFilter(event.target.value)}
-              >
-                <option value="all">All destination stations</option>
-                {stations.map((station, index) => (
-                  <option
-                    key={`${station.id}-${index}`}
-                    value={station.id || station.name}
-                  >
-                    {station.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="rk-alt__filter rk-alt__filter--search">
-              <span>SEARCH</span>
-              <input
-                value={searchText}
-                onChange={(event) => setSearchText(event.target.value)}
-                placeholder="Search station or seat class"
-              />
-            </label>
-
-            <label className="rk-alt__available-toggle">
-              <input
-                type="checkbox"
-                checked={availableOnly}
-                onChange={(event) => setAvailableOnly(event.target.checked)}
-              />
-              <span className="rk-alt__toggle-ui" />
-              <span>Available only</span>
-            </label>
-          </div>
-
-          {apiState === "success" && combinations.length > 0 && (
-            <div className="rk-alt__result-caption">
-              <strong>{availableCount}</strong> with seats ·{" "}
-              <strong>{soldCount}</strong> sold out ·{" "}
-              <strong>{combinations.length}</strong> returned
-            </div>
-          )}
-
-          {filteredCombinations.length > 0 && (
-            <div className="rk-alt__combination-list">
-              {filteredCombinations.map((item, index) => (
-                <article
-                  className="rk-alt__combination"
-                  key={`${item.from}-${item.to}-${index}`}
-                >
-                  <div>
-                    <small>{item.from}</small>
-                    <span aria-hidden="true">→</span>
-                    <strong>{item.to}</strong>
-                  </div>
-                  <strong>
-                    {item.availableCount === null ? "—" : item.availableCount}
-                    <small> seats</small>
-                  </strong>
-                  {item.seatClasses.length > 0 && (
-                    <div className="rk-alt__classes">
-                      {item.seatClasses.map((seat, seatIndex) => (
-                        <div className="rk-alt__class" key={`${seat.type}-${seatIndex}`}>
-                          <strong>{seatClassLabel(seat.type)}</strong>
-                          <span>
-                            {seat.online === null ? "—" : seat.online} seats
-                          </span>
-                          <span>{money(seat.fare)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </article>
-              ))}
-            </div>
-          )}
-
-          {apiState === "success" && combinations.length === 0 && (
-            <div className="rk-alt__empty">
-              <span aria-hidden="true">⌕</span>
-              <h3>No combinations returned by the route API</h3>
-              <p>
-                The route endpoint returned station information, but no
-                station-pair availability. Use the alternative search above
-                to check each destination through the existing search API.
-              </p>
-            </div>
-          )}
-
-          {apiState === "success" &&
-            combinations.length > 0 &&
-            filteredCombinations.length === 0 && (
-              <div className="rk-alt__empty">
-                <h3>No matching combinations</h3>
-                <p>Change the filters or turn off Available only.</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFromFilter("all");
-                    setToFilter("all");
-                    setAvailableOnly(false);
-                    setSearchText("");
+              <div className="rk-alt__progress-track">
+                <span
+                  style={{
+                    width:
+                      totalRequests > 0
+                        ? `${(completedRequests / totalRequests) * 100}%`
+                        : "0%",
                   }}
-                >
-                  Clear filters
-                </button>
+                />
+              </div>
+            </div>
+
+            {/* Complete Station List */}
+
+            <div className="rk-alt__route-stations">
+
+              <div className="rk-alt__route-stations-heading">
+                <strong>Train route & seat availability</strong>
+
+                <span>
+                  {stations.length} stations received from API
+                </span>
+              </div>
+
+              {/* Starting Station */}
+
+              <div className="rk-alt__starting-station">
+                <div className="rk-alt__station-number">
+                  01
+                </div>
+
+                <div className="rk-alt__starting-info">
+                  <span>STARTING STATION</span>
+
+                  <strong>
+                    {displayName(stations[0]?.name)}
+                  </strong>
+
+                  <small>
+                    {formatTime(stations[0]) || "Departure time not available"}
+                  </small>
+                </div>
+
+                <span className="rk-alt__starting-badge">
+                  START
+                </span>
+              </div>
+
+              <div className="rk-alt__station-grid">
+
+                {destinationStations.map((station, index) => {
+                  const result = availability[station.id];
+
+                  const status = result?.status ?? "pending";
+
+                  return (
+                    <article
+                      className={`rk-alt__station-card rk-alt__station-card--${status}`}
+                      key={`${station.id}-${index}`}
+                    >
+
+                      {/* Station Heading */}
+
+                      <div className="rk-alt__station-card-top">
+
+                        <span className="rk-alt__station-number">
+                          {String(index + 2).padStart(2, "0")}
+                        </span>
+
+                        <span
+                          className={`rk-alt__station-badge rk-alt__station-badge--${status}`}
+                        >
+                          {status === "pending" && "Checking"}
+                          {status === "available" && "Available"}
+                          {status === "sold" && "Sold out"}
+                          {status === "unknown" && "Unknown"}
+                          {status === "error" && "Failed"}
+                        </span>
+
+                      </div>
+
+                      {/* Station Information */}
+
+                      <div className="rk-alt__station-info">
+
+                        <strong title={displayName(station.name)}>
+                          {displayName(station.name)}
+                        </strong>
+
+                        <span>
+                          {formatTime(station) || "Time not available"}
+                        </span>
+
+                      </div>
+
+                      {/* Journey Pair */}
+
+                      <div className="rk-alt__station-journey">
+
+                        <div>
+                          <small>FROM</small>
+                          <strong>{from}</strong>
+                        </div>
+
+                        <span>→</span>
+
+                        <div>
+                          <small>TO</small>
+                          <strong>{displayName(station.name)}</strong>
+                        </div>
+
+                      </div>
+
+                      {/* Availability */}
+
+                      <div className="rk-alt__availability">
+
+                        {status === "pending" && (
+                          <div className="rk-alt__checking">
+                            <span className="rk-alt__spinner" />
+                            <span>Checking availability…</span>
+                          </div>
+                        )}
+
+                        {status === "available" && (
+                          <div className="rk-alt__availability-count">
+                            <strong>
+                              {result.availableCount ?? "—"}
+                            </strong>
+
+                            <span>Seats available</span>
+                          </div>
+                        )}
+
+                        {status === "sold" && (
+                          <div className="rk-alt__availability-count rk-alt__availability-count--sold">
+                            <strong>0</strong>
+                            <span>No seats available</span>
+                          </div>
+                        )}
+
+                        {status === "unknown" && (
+                          <div className="rk-alt__unknown">
+                            Seat count not reported
+                          </div>
+                        )}
+
+                        {status === "error" && (
+                          <div className="rk-alt__error-text">
+                            {result.message || "Request failed"}
+                          </div>
+                        )}
+
+                      </div>
+
+                      {/* Seat Classes */}
+
+                      {result?.seatClasses &&
+                        result.seatClasses.length > 0 && (
+                          <div className="rk-alt__classes">
+
+                            {result.seatClasses.map((seat, seatIndex) => {
+
+                              const seatStatus =
+                                seat.online === null
+                                  ? "unknown"
+                                  : seat.online > 0
+                                    ? "available"
+                                    : "sold";
+
+                              return (
+                                <div
+                                  className={`rk-alt__class rk-alt__class--${seatStatus}`}
+                                  key={`${seat.type}-${seatIndex}`}
+                                >
+
+                                  <div>
+                                    <strong>
+                                      {classLabel(seat.type)}
+                                    </strong>
+
+                                    <small>{seat.type}</small>
+                                  </div>
+
+                                  <strong className="rk-alt__class-count">
+                                    {seat.online === null
+                                      ? "—"
+                                      : seat.online}
+
+                                    <small>
+                                      {seat.online === 1
+                                        ? "seat"
+                                        : "seats"}
+                                    </small>
+                                  </strong>
+
+                                  <span>{money(seat.fare)}</span>
+
+                                </div>
+                              );
+                            })}
+
+                          </div>
+                        )}
+
+                    </article>
+                  );
+                })}
+
+              </div>
+
+            </div>
+
+            {/* Completion Message */}
+
+            {!isChecking && totalRequests > 0 && (
+              <div className="rk-alt__completion">
+                <span>✓</span>
+
+                <div>
+                  <strong>Availability checking finished</strong>
+
+                  <p>
+                    {availableCount} available,
+                    {" "}{soldCount} sold out,
+                    {" "}{failedCount} failed or unavailable results.
+                  </p>
+                </div>
               </div>
             )}
-        </section>
 
-        <p className="rk-alt__footnote">
-          Availability can change at any time. A missing seat count is unknown,
-          not sold out. Confirm final availability on the official Bangladesh
-          Railway booking service.
-        </p>
+            {isChecking && (
+              <div className="rk-alt__notice rk-alt__notice--info">
+                <span className="rk-alt__spinner" />
+
+                <p>
+                  Results are updating automatically as individual
+                  API requests complete.
+                </p>
+              </div>
+            )}
+
+          </>
+        )}
+
+        <div className="rk-alt__footnote">
+          <span>ⓘ</span>
+
+          <p>
+            Seat availability can change at any time.
+            A missing seat count does not mean sold out.
+            Confirm final availability on the official
+            Bangladesh Railway booking service.
+          </p>
+        </div>
+
       </section>
 
       <footer className="rk-alt__footer">
         <strong>RailKhoj</strong>
-        <span>Made for easier train journeys in Bangladesh.</span>
+
+        <span>
+          Made for easier train journeys in Bangladesh.
+        </span>
       </footer>
+
     </main>
   );
 }
 
-export default function AlternativeSeatsPage() {
+/* ----------------------------------------
+   Suspense Fallback
+---------------------------------------- */
+
+function LoadingFallback() {
   return (
-    <Suspense
-      fallback={
-        <main className="rk-alt rk-alt--loading">
-          <div className="rk-alt__loading-card">
-            <span className="rk-alt__spinner" />
-            Loading selected train…
-          </div>
-        </main>
-      }
-    >
+    <main className="rk-alt rk-alt--loading">
+      <div className="rk-alt__loading-card">
+        <span className="rk-alt__loading-spinner" />
+
+        <h2>Preparing your journey</h2>
+
+        <p>Loading train information…</p>
+      </div>
+    </main>
+  );
+}
+
+/* ----------------------------------------
+   Page Export
+---------------------------------------- */
+
+export default function SingleTrainPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
       <AlternativeSeatsContent />
     </Suspense>
   );
