@@ -363,10 +363,16 @@ function AlternativeSeatsContent() {
           <div className="rk-alt__route-stations-heading"><div><strong>Complete train route</strong><p>Station order and timings received from Railway API</p></div><span>{stations.length} stations</span></div>
           <ol className="rk-alt__route-map rk-alt__route-map--list">
             {stations.map((station, index) => <li className={`rk-alt__station-stop ${index === 0 ? "is-first" : ""} ${index === stations.length - 1 ? "is-last" : ""}`} key={`${station.id}-${index}`}>
-              <span className="rk-alt__station-node" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
-              <span className="rk-alt__station-name">{displayName(station.name)}</span>
+              <div className="head" style={{display: "flex", width: "100%", alignItems: "center"}}>
+                <span className="rk-alt__station-node" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+                <span className="rk-alt__station-name" style={{margin: "0 0 0 10px"}}>{displayName(station.name)}</span>
+              </div>
               <span className="rk-alt__station-time">{station.arrival ? `Arr ${station.arrival}` : ""}{station.arrival && station.departure ? " · " : ""}{station.departure ? `Dep ${station.departure}` : ""}{!station.arrival && !station.departure ? "Time unavailable" : ""}</span>
-              {(index === 0 || index === stations.length - 1) && <span className="rk-alt__station-tag">{index === 0 ? "START" : "DESTINATION"}</span>}
+              {(index === 0 || index === stations.length - 1) && <span className="rk-alt__station-tag" style={{
+    position: "absolute",
+    top: "10px",
+    right: "10px"
+}}>{index === 0 ? "START" : "DESTINATION"}</span>}
             </li>)}
           </ol>
         </section>}
