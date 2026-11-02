@@ -192,8 +192,8 @@ export async function POST(request: NextRequest) {
     }
 
     const params = new URLSearchParams({
-      from_city: fromCity.city_name.replace(/_/g, " "),
-      to_city: toCity.city_name.replace(/_/g, " "),
+      from_city: fromCity.city_name,
+      to_city: toCity.city_name,
       date_of_journey: formattedDate,
       seat_class: "F_SEAT",
     });
@@ -246,8 +246,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       route: {
-        from: fromCity.city_name.replace(/_/g, " "),
-        to: toCity.city_name.replace(/_/g, " "),
+        from: fromCity.city_name,
+        to: toCity.city_name,
         date: formattedDate,
         seatClass: "F_SEAT",
       },
