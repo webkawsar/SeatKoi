@@ -7,6 +7,8 @@ import TokenForm, {
   type TokenFormData,
 } from "@/components/token/TokenForm";
 
+const RAILWAY_USER_CREDENTIALS_KEY = "SeatKoi_user_credentials";
+
 export default function TokenPage() {
   const router = useRouter();
   const [message, setMessage] = useState("");
@@ -30,6 +32,12 @@ export default function TokenPage() {
         result.error || "Authentication failed. Please try again."
       );
     }
+
+    // save credentials to session storage
+    sessionStorage.setItem(
+      RAILWAY_USER_CREDENTIALS_KEY,
+      JSON.stringify(data)
+    );
 
     setMessage("Authentication successful. Redirecting...");
 

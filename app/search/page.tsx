@@ -22,6 +22,12 @@ type SearchResult = {
   details?: unknown;
 };
 
+type UserCredentials = {
+  token: string;
+  deviceId: string;
+  deviceKey: string;
+};
+
 type MessageType = "error" | "success";
 
 const SEARCH_RESULT_STORAGE_KEY = "SeatKoi_search_result";
@@ -121,6 +127,13 @@ export default function SearchPage() {
     setIsLoading(true);
 
     try {
+
+      const RAILWAY_USER_CREDENTIALS_KEY = "SeatKoi_user_credentials";
+      const storedData = sessionStorage.getItem(
+        RAILWAY_USER_CREDENTIALS_KEY
+      );
+      const credentials: UserCredentials | null = storedData ? JSON.parse(storedData) : null;
+
       const response = await fetch("/api/search-trips", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -130,6 +143,7 @@ export default function SearchPage() {
           from_city: fromStation.city_name,
           to_city: toStation.city_name,
           date_of_journey: journeyDate,
+          credentials,
         }),
         cache: "no-store",
       });

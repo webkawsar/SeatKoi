@@ -1,17 +1,20 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
-// export const runtime = "nodejs";
+type UserCredentials = {
+  token: string;
+  deviceId: string;
+  deviceKey: string;
+};
 
 const RAILWAY_API_URL =
   "https://railspaapi.shohoz.com/v1.0/web/train-routes";
 
-export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
+export async function POST(request: NextRequest) {
+  const body = await request.json();
 
-  const model = searchParams.get("model");
-  const departureDate = searchParams.get("date");
-  console.log(searchParams, "searchParams")
+  const model = body?.model;
+  const departureDate = body?.date;
 
   if (!model || !departureDate) {
     return NextResponse.json(
@@ -23,9 +26,10 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const token = process.env.RAILWAY_TOKEN;
-  const deviceId = process.env.RAILWAY_DEVICE_ID;
-  const deviceKey = process.env.RAILWAY_DEVICE_KEY;
+  const credentials = body.credentials as UserCredentials | undefined;
+  const token = credentials?.token;
+  const deviceId = credentials?.deviceId;
+  const deviceKey = credentials?.deviceKey;
 
   if (!token || !deviceId || !deviceKey) {
     return NextResponse.json(

@@ -51,6 +51,12 @@ type AvailabilityResult = {
 };
 type ApiState = "loading" | "success" | "error";
 
+type UserCredentials = {
+  token: string;
+  deviceId: string;
+  deviceKey: string;
+};
+
 const cities = (railwayData as { cities: RailwayCity[] }).cities;
 
 function asObject(value: unknown): Record<string, any> | null {
@@ -212,8 +218,24 @@ function AlternativeSeatsContent() {
 
     try {
       // Step 1: Load the complete route for this train.
-      const routeParams = new URLSearchParams({ model, date });
-      const routeResponse = await fetch(`/api/train-route?${routeParams.toString()}`, { method: "GET", cache: "no-store" });
+   
+      const RAILWAY_USER_CREDENTIALS_KEY = "SeatKoi_user_credentials";
+      const storedData = sessionStorage.getItem(
+        RAILWAY_USER_CREDENTIALS_KEY
+      );
+      const credentials: UserCredentials | null = storedData ? JSON.parse(storedData) : null;
+      
+      const routeResponse = await fetch("/api/train-route", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          model,
+          date,
+          credentials
+        }),
+      });
+
       const routePayload: unknown = await routeResponse.json();
       const routeEnvelope = asObject(routePayload);
       if (!routeResponse.ok || routeEnvelope?.ok === false) {
@@ -260,6 +282,13 @@ function AlternativeSeatsContent() {
 
           setResults(current => current.map((item, index) => index === currentIndex ? { ...item, status: "loading" } : item));
           try {
+
+            const RAILWAY_USER_CREDENTIALS_KEY = "SeatKoi_user_credentials";
+            const storedData = sessionStorage.getItem(
+              RAILWAY_USER_CREDENTIALS_KEY
+            );
+            const credentials: UserCredentials | null = storedData ? JSON.parse(storedData) : null;
+            
             const response = await fetch("/api/search-trips", {
               method: "POST",
               headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -268,6 +297,7 @@ function AlternativeSeatsContent() {
                 from_city_id: originCity.city_id,
                 to_city_id: station.cityId,
                 date_of_journey: date,
+                credentials
               }),
             });
             const payload: unknown = await response.json();
