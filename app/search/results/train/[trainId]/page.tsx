@@ -355,8 +355,8 @@ function AlternativeSeatsContent() {
   return (
     <main className="rk-alt">
       <header className="rk-alt__header">
-        <Link href="/search" className="rk-alt__brand" aria-label="RailKhoj home">
-          <span className="rk-alt__brand-mark" aria-hidden="true">▤</span><span><strong>RailKhoj</strong><small>Bangladesh Railway</small></span>
+        <Link href="/search" className="rk-alt__brand" aria-label="SeatKoi home">
+          <span className="rk-alt__brand-mark" aria-hidden="true">▤</span><span><strong>SeatKoi</strong><small>Bangladesh Railway</small></span>
         </Link>
         <Link href="/search/results" className="rk-alt__back"><span aria-hidden="true">←</span> Back to train results</Link>
       </header>
@@ -367,7 +367,8 @@ function AlternativeSeatsContent() {
           <div className="rk-alt__train-chip"><span className="rk-alt__train-chip-icon" aria-hidden="true">▤</span><span><small>TRAIN</small><strong>{trainName}</strong><em>Train model: {model || "—"}</em></span></div>
         </div>
         <div className="rk-alt__route-summary">
-          <div><span>STARTING STATION</span><strong>{from}</strong><small>Fixed for every search</small></div><span className="rk-alt__route-arrow" aria-hidden="true">○ ⟶ ○</span>
+          <div><span>STARTING STATION</span><strong>{from}</strong><small>Fixed for every search</small></div>
+          {/* <span className="rk-alt__route-arrow" aria-hidden="true">○ ⟶ ○</span> */}
           <div><span>ORIGINAL DESTINATION</span><strong>{to}</strong><small>First destination checked</small></div>
           <div className="rk-alt__date"><span>JOURNEY DATE</span><strong>{formatDate(date)}</strong><small>{train?.travel_time ? `Journey · ${train.travel_time}` : "Selected journey"}</small></div>
         </div>
@@ -431,7 +432,7 @@ function AlternativeSeatsContent() {
         {routeState === "success" && stations.length > 0 && totalRequests === 0 && <div className="rk-alt__empty"><h3>No destination stations found</h3><p>The route API returned only the starting station.</p></div>}
         <div className="rk-alt__footnote"><span aria-hidden="true">ⓘ</span><p>Seat availability can change at any time. A missing seat count means availability is unknown, not sold out. Confirm final availability on the official Bangladesh Railway booking service.</p></div>
       </section>
-      <footer className="rk-alt__footer"><strong>RailKhoj</strong><span>Made for easier train journeys in Bangladesh.</span></footer>
+      <footer className="rk-alt__footer"><strong>SeatKoi</strong><span>Made for easier train journeys in Bangladesh.</span></footer>
     </main>
   );
 }

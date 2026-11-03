@@ -128,6 +128,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: "Railway profile verified successfully.",
+      data: profileData
     });
   } catch {
     // 8. Handle unexpected errors

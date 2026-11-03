@@ -155,7 +155,7 @@ export default function Home() {
       {/* Header */}
       <header className="rk-header">
         <div className="rk-container rk-header__inner">
-          <Link href="/" className="rk-brand" aria-label="RailKhoj home">
+          <Link href="/" className="rk-brand" aria-label="SeatKoi home">
             <span className="rk-brand__icon">
               <svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
                 <rect
@@ -179,7 +179,7 @@ export default function Home() {
             </span>
 
             <span className="rk-brand__text">
-              Rail<span>Khoj</span>
+              Seat<span>Koi</span>
               <small>YOUR JOURNEY, SIMPLIFIED</small>
             </span>
           </Link>
@@ -426,7 +426,7 @@ export default function Home() {
                 </span>
                 <h2>Verifying your Railway connection</h2>
                 <p>
-                  Please wait while RailKhoj checks your authentication status.
+                  Please wait while SeatKoi checks your authentication status.
                 </p>
               </div>
             </div>
@@ -807,7 +807,7 @@ export default function Home() {
             </span>
 
             <span className="rk-brand__text">
-              Rail<span>Khoj</span>
+              Seat<span>Koi</span>
               <small>YOUR JOURNEY, SIMPLIFIED</small>
             </span>
           </Link>
@@ -818,7 +818,7 @@ export default function Home() {
           </p>
 
           <span className="rk-footer__copyright">
-            © {currentYear ?? "RailKhoj"} RailKhoj
+            © {currentYear ?? "SeatKoi"} SeatKoi
           </span>
         </div>
       </footer>

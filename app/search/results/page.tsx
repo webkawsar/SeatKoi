@@ -235,7 +235,6 @@ function TrainCard({
           <div className="rk-results__line">
             <span className="rk-results__line-dot" />
             <span className="rk-results__line-track" />
-            <span className="rk-results__line-train" aria-hidden="true">↗</span>
             <span className="rk-results__line-dot" />
           </div>
           <span className="rk-results__journey-caption">Direct journey</span>
@@ -358,7 +357,7 @@ export default function SearchResultsPage() {
             </svg>
           </span>
           <span>
-            <strong>RailKhoj</strong>
+            <strong>SeatKoi</strong>
             <small>Bangladesh Railway</small>
           </span>
         </Link>
@@ -382,13 +381,13 @@ export default function SearchResultsPage() {
             <span>FROM</span>
             <strong>{from}</strong>
           </div>
-          <div className="rk-results__route-connector" aria-hidden="true">
+          {/* <div className="rk-results__route-connector" aria-hidden="true">
             <span />
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M4 12h16m-6-6 6 6-6 6" />
             </svg>
             <span />
-          </div>
+          </div> */}
           <div className="rk-results__route-city">
             <span>TO</span>
             <strong>{to}</strong>
@@ -447,7 +446,7 @@ export default function SearchResultsPage() {
       </section>
 
       <footer className="rk-results__footer">
-        <strong>RailKhoj</strong>
+        <strong>SeatKoi</strong>
         <span>Made for easier train journeys in Bangladesh.</span>
       </footer>
     </main>

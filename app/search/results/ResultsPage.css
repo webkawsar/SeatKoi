@@ -129,7 +129,7 @@
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(70px, .35fr) minmax(0, 1fr) minmax(190px, .8fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(190px, .8fr);
   align-items: center;
   gap: 20px;
   padding: 21px 24px;

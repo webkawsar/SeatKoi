@@ -28,10 +28,27 @@ type UserCredentials = {
   deviceKey: string;
 };
 
+type UserProfile = {
+  display_name: string;
+  email: string;
+  phone_number: string;
+  alternative_mobile_number?: string|null;
+  identification_type?: number;
+  identification_number?: string;
+  postal_code?: string;
+  address?: string;
+  dob?: string;
+  is_email_verified?: number;
+  is_email_verification_required?: boolean;
+  nid_validated?: number;
+};
+
+
+
 type MessageType = "error" | "success";
 
 const SEARCH_RESULT_STORAGE_KEY = "SeatKoi_search_result";
-// const SEARCH_QUERY_STORAGE_KEY = "SeatKoi_search_query";
+const RAILWAY_USER_PROFILE_KEY = "SeatKoi_user_profile";
 
 export default function SearchPage() {
   const router = useRouter();
@@ -47,6 +64,7 @@ export default function SearchPage() {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<MessageType>("error");
   const [isLoading, setIsLoading] = useState(false);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
 
   function showError(text: string) {
     setMessageType("error");
@@ -74,6 +92,11 @@ export default function SearchPage() {
     const today = new Date();
     const lastAllowedDate = new Date(today);
     lastAllowedDate.setDate(lastAllowedDate.getDate() + 10);
+
+    //load user profile
+    const profileData = sessionStorage.getItem(RAILWAY_USER_PROFILE_KEY);
+    const profileInfo: UserProfile | null  = profileData ? JSON.parse(profileData) : null;
+    setProfile(profileInfo);
 
     setMinDate(formatDate(today));
     setMaxDate(formatDate(lastAllowedDate));
@@ -206,6 +229,19 @@ export default function SearchPage() {
     }
   }
 
+const displayName = profile?.display_name?.trim() || "";
+const initials = displayName
+  ? displayName.split(/\s+/).length > 1
+    ? displayName
+        .split(/\s+/)
+        .map((word) => word.charAt(0))
+        .join("")
+        .toUpperCase()
+    : displayName.charAt(0).toUpperCase() +
+      displayName.slice(-1).toUpperCase()
+  : "👤";
+
+
   return (
     <main className="rail-search">
       <header className="rail-search__header">
@@ -222,8 +258,13 @@ export default function SearchPage() {
           </span>
         </a>
         <div className="rail-search__secure">
-          <span className="rail-search__secure-dot" />
-          Railway Seat Finder
+          <div className="profile" style={{
+              border: "2px solid green",
+              borderRadius: "50%",
+              padding: "10px"
+          }}>{initials}</div>
+          {/* <span className="rail-search__secure-dot" /> */}
+          {/* Railway Seat Finder */}
         </div>
       </header>
 

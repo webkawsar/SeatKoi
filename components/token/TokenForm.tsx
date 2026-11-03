@@ -86,7 +86,7 @@ export default function TokenForm({ onSubmit }: TokenFormProps) {
           </div>
 
           <div>
-            <p className="rail-token__eyebrow">RAILKHOJ</p>
+            <p className="rail-token__eyebrow">SEATKOI</p>
             <h1>Connect your railway account</h1>
           </div>
         </div>
@@ -95,35 +95,6 @@ export default function TokenForm({ onSubmit }: TokenFormProps) {
           Enter your Railway session credentials to continue to train
           availability search.
         </p>
-
-        {/* <div className="rail-token__notice">
-          <span className="rail-token__notice-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="21" height="21" fill="none">
-              <rect
-                x="5"
-                y="10"
-                width="14"
-                height="11"
-                rx="2"
-                stroke="currentColor"
-                strokeWidth="1.8"
-              />
-              <path
-                d="M8 10V7a4 4 0 018 0v3"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-              />
-            </svg>
-          </span>
-          <div>
-            <strong>Secure connection</strong>
-            <p>
-              Your credentials will be submitted to the Railway server for
-              verification.
-            </p>
-          </div>
-        </div> */}
 
         <form onSubmit={handleSubmit} className="rail-token__form">
           <div className="rail-token__field">
@@ -287,7 +258,7 @@ export default function TokenForm({ onSubmit }: TokenFormProps) {
 
         <div className="rail-token__footer">
           <span className="rail-token__status-dot" />
-          <span>RailKhoj · Railway seat availability finder</span>
+          <span>SeatKoi · Railway seat availability finder</span>
         </div>
       </div>
     </section>
