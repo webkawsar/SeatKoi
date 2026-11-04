@@ -292,17 +292,31 @@ function TrainCard({
             <small>Explore availability between stations along this train's route.</small>
           </span>
         </div>
-        <Link
+        <div className="strategy">
+          <Link
           href={`/search/results/train/${train.train_model}`}
           className="rk-results__alternative-button"
           onClick={saveAlternativeSearch}
           aria-label={`Find alternative seats on ${train.trip_number || "this train"}`}
         >
-          Find Alternative Seats
+          Strategy A
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
             <path d="M5 12h14m-6-6 6 6-6 6" />
           </svg>
         </Link>
+
+        <Link
+          href={`/search/results/strategy-b/train/${train.train_model}`}
+          className="rk-results__alternative-button"
+          onClick={saveAlternativeSearch}
+          aria-label={`Find alternative seats on ${train.trip_number || "this train"}`}
+        >
+          Strategy B
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+            <path d="M5 12h14m-6-6 6 6-6 6" />
+          </svg>
+        </Link>
+        </div>
       </div>
     </article>
   );

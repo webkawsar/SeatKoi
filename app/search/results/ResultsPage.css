@@ -572,6 +572,7 @@
   font-weight: 800;
   text-decoration: none;
   transition: background .18s ease, border-color .18s ease, transform .18s ease;
+  margin: 0 10px;
 }
 .rk-results__alternative-button:hover {
   border-color: var(--rk-green-dark);
