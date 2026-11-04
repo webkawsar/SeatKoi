@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import railwayData from "@/data/railway-data.json";
@@ -51,7 +51,7 @@ type ResultStatus = "pending" | "loading" | "available" | "sold" | "unknown" | "
 
 type AvailabilityResult = {
   fromStation: RouteStation;
-  toStation: RouteStation;
+  station: RouteStation;
   status: ResultStatus;
   availableCount: number | null;
   seatClasses: SeatClass[];
@@ -211,6 +211,101 @@ function money(value?: string | number): string {
     : String(value);
 }
 
+
+const REQUEST_GAP_MS = 3000;
+const MAX_429_RETRIES = 3;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+type PairSearchOutcome = {
+  status: "available" | "sold" | "unknown";
+  availableCount: number | null;
+  seatClasses: SeatClass[];
+  message?: string;
+};
+
+async function searchStationPair(
+  pair: { fromStation: RouteStation; toStation: RouteStation },
+  model: string,
+  date: string
+): Promise<PairSearchOutcome> {
+  const storedCredentials = sessionStorage.getItem("SeatKoi_user_credentials");
+  const credentials: UserCredentials | null = storedCredentials
+    ? JSON.parse(storedCredentials)
+    : null;
+
+  for (let attempt = 0; attempt <= MAX_429_RETRIES; attempt += 1) {
+    const response = await fetch("/api/search-trips", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        from_city_id: pair.fromStation.cityId,
+        to_city_id: pair.toStation.cityId,
+        date_of_journey: date,
+        credentials,
+      }),
+    });
+
+    if (response.status === 429 && attempt < MAX_429_RETRIES) {
+      await delay(5000 * Math.pow(2, attempt));
+      continue;
+    }
+
+    const payload: unknown = await response.json();
+    const envelope = asObject(payload);
+
+    if (!response.ok || envelope?.error) {
+      throw new Error(
+        response.status === 429
+          ? "Railway API rate limit reached after retries. This pair can be retried later."
+          : String(envelope?.error ?? `Search request failed (${response.status}).`)
+      );
+    }
+
+    const trains = findTrainList(payload);
+    const matchingTrain = trains.find((item) => trainMatches(item, model));
+
+    if (!matchingTrain) {
+      return {
+        status: "unknown",
+        availableCount: null,
+        seatClasses: [],
+        message: trains.length
+          ? "This train was not returned for this station pair."
+          : "No train data returned for this station pair.",
+      };
+    }
+
+    const seatClasses = getSeatClasses(matchingTrain);
+    const knownCounts = seatClasses
+      .map((seat) => seat.online)
+      .filter((count): count is number => count !== null);
+    const availableCount = knownCounts.length
+      ? knownCounts.reduce((sum, count) => sum + count, 0)
+      : null;
+
+    return {
+      status:
+        availableCount === null
+          ? "unknown"
+          : availableCount > 0
+            ? "available"
+            : "sold",
+      availableCount,
+      seatClasses,
+      message:
+        availableCount === null
+          ? "The API did not return online seat counts."
+          : undefined,
+    };
+  }
+
+  throw new Error("Railway API request failed after retries.");
+}
+
 function AlternativeSeatsContent() {
   const params = useParams<{ trainId: string }>();
   const searchParams = useSearchParams();
@@ -229,6 +324,8 @@ function AlternativeSeatsContent() {
   const [completed, setCompleted] = useState(0);
   const [totalRequests, setTotalRequests] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isRetryingFailed, setIsRetryingFailed] = useState(false);
+  const isRunningRef = useRef(false);
 
   useEffect(() => {
     try {
@@ -260,6 +357,8 @@ function AlternativeSeatsContent() {
   const trainName = displayName(train?.trip_number || `Train ${model}`);
 
   const loadRouteAndAvailability = useCallback(async () => {
+    if (isRunningRef.current) return;
+
     if (!date || !model) {
       setRouteState("error");
       setRouteMessage(
@@ -268,6 +367,7 @@ function AlternativeSeatsContent() {
       return;
     }
 
+    isRunningRef.current = true;
     setRouteState("loading");
     setRouteMessage("");
     setStations([]);
@@ -277,40 +377,64 @@ function AlternativeSeatsContent() {
 
     try {
       const storedData = sessionStorage.getItem("SeatKoi_user_credentials");
-      const credentials: UserCredentials | null = storedData ? JSON.parse(storedData) : null;
+      const credentials: UserCredentials | null = storedData
+        ? JSON.parse(storedData)
+        : null;
 
       const routeResponse = await fetch("/api/train-route", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
         cache: "no-store",
         body: JSON.stringify({ model, date, credentials }),
       });
 
       const routePayload: unknown = await routeResponse.json();
       const routeEnvelope = asObject(routePayload);
+
       if (!routeResponse.ok || routeEnvelope?.ok === false) {
         throw new Error(
-          String(routeEnvelope?.error ?? `Train route request failed (${routeResponse.status}).`)
+          String(
+            routeEnvelope?.error ??
+              `Train route request failed (${routeResponse.status}).`
+          )
         );
       }
 
       const parsed = getRouteStations(routePayload);
-      if (!parsed.stations.length) throw new Error("Train route API returned no stations.");
+
+      if (!parsed.stations.length) {
+        throw new Error("Train route API returned no stations.");
+      }
+
       setStations(parsed.stations);
       setRouteState("success");
 
-      // Strategy B: query every forward pair (station i -> every station j where j > i).
-      const pairs: Array<{ fromStation: RouteStation; toStation: RouteStation }> = [];
+      // Build every forward pair: station i -> each station j where j > i.
+      const pairs: Array<{
+        fromStation: RouteStation;
+        toStation: RouteStation;
+      }> = [];
+
       for (let i = 0; i < parsed.stations.length - 1; i += 1) {
         for (let j = i + 1; j < parsed.stations.length; j += 1) {
-          pairs.push({ fromStation: parsed.stations[i], toStation: parsed.stations[j] });
+          pairs.push({
+            fromStation: parsed.stations[i],
+            toStation: parsed.stations[j],
+          });
         }
       }
 
       const initialResults: AvailabilityResult[] = pairs.map((pair) => {
-        const valid = Boolean(pair.fromStation.cityId && pair.toStation.cityId);
+        const valid = Boolean(
+          pair.fromStation.cityId && pair.toStation.cityId
+        );
+
         return {
-          ...pair,
+          fromStation: pair.fromStation,
+          station: pair.toStation,
           status: valid ? "pending" : "error",
           availableCount: null,
           seatClasses: [],
@@ -323,130 +447,162 @@ function AlternativeSeatsContent() {
       setResults(initialResults);
       setTotalRequests(pairs.length);
 
-      const concurrency = 3;
-      let nextIndex = 0;
+      // Sequential queue: only one Railway search request at a time.
+      let completedInQueue = 0;
 
-      const worker = async () => {
-        while (nextIndex < pairs.length) {
-          const currentIndex = nextIndex++;
-          const pair = pairs[currentIndex];
+      for (let currentIndex = 0; currentIndex < pairs.length; currentIndex += 1) {
+        const pair = pairs[currentIndex];
 
-          if (!pair.fromStation.cityId || !pair.toStation.cityId) {
-            setCompleted((value) => value + 1);
-            continue;
-          }
+        if (!pair.fromStation.cityId || !pair.toStation.cityId) {
+          completedInQueue += 1;
+          setCompleted(completedInQueue);
+          continue;
+        }
+
+        // Wait between requests, but do not delay the first request.
+        if (currentIndex > 0) {
+          await delay(REQUEST_GAP_MS);
+        }
+
+        setResults((current) =>
+          current.map((item, index) =>
+            index === currentIndex
+              ? { ...item, status: "loading", message: undefined }
+              : item
+          )
+        );
+
+        try {
+          const outcome = await searchStationPair(pair, model, date);
 
           setResults((current) =>
             current.map((item, index) =>
-              index === currentIndex ? { ...item, status: "loading" } : item
+              index === currentIndex
+                ? {
+                    ...item,
+                    status: outcome.status,
+                    availableCount: outcome.availableCount,
+                    seatClasses: outcome.seatClasses,
+                    message: outcome.message,
+                  }
+                : item
             )
           );
-
-          try {
-            const storedCredentials = sessionStorage.getItem("SeatKoi_user_credentials");
-            const requestCredentials: UserCredentials | null = storedCredentials
-              ? JSON.parse(storedCredentials)
-              : null;
-
-            const response = await fetch("/api/search-trips", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", Accept: "application/json" },
-              cache: "no-store",
-              body: JSON.stringify({
-                from_city_id: pair.fromStation.cityId,
-                to_city_id: pair.toStation.cityId,
-                date_of_journey: date,
-                credentials: requestCredentials,
-              }),
-            });
-
-            const payload: unknown = await response.json();
-            const envelope = asObject(payload);
-            if (!response.ok || envelope?.error) {
-              throw new Error(
-                String(envelope?.error ?? `Search request failed (${response.status}).`)
-              );
-            }
-
-            const trains = findTrainList(payload);
-            const matchingTrain = trains.find((item) => trainMatches(item, model));
-
-            if (!matchingTrain) {
-              setResults((current) =>
-                current.map((item, index) =>
-                  index === currentIndex
-                    ? {
-                        ...item,
-                        status: "unknown",
-                        availableCount: null,
-                        seatClasses: [],
-                        message: trains.length
-                          ? "This train was not returned for this station pair."
-                          : "No train data returned for this station pair.",
-                      }
-                    : item
-                )
-              );
-            } else {
-              const seatClasses = getSeatClasses(matchingTrain);
-              const knownCounts = seatClasses
-                .map((seat) => seat.online)
-                .filter((count): count is number => count !== null);
-              const availableCount = knownCounts.length
-                ? knownCounts.reduce((sum, count) => sum + count, 0)
-                : null;
-
-              setResults((current) =>
-                current.map((item, index) =>
-                  index === currentIndex
-                    ? {
-                        ...item,
-                        status:
-                          availableCount === null
-                            ? "unknown"
-                            : availableCount > 0
-                              ? "available"
-                              : "sold",
-                        availableCount,
-                        seatClasses,
-                        message:
-                          availableCount === null
-                            ? "The API did not return online seat counts."
-                            : undefined,
-                      }
-                    : item
-                )
-              );
-            }
-          } catch (error) {
-            setResults((current) =>
-              current.map((item, index) =>
-                index === currentIndex
-                  ? {
-                      ...item,
-                      status: "error",
-                      message:
-                        error instanceof Error
-                          ? error.message
-                          : "Availability request failed.",
-                    }
-                  : item
-              )
-            );
-          } finally {
-            setCompleted((value) => value + 1);
-          }
+        } catch (error) {
+          setResults((current) =>
+            current.map((item, index) =>
+              index === currentIndex
+                ? {
+                    ...item,
+                    status: "error",
+                    message:
+                      error instanceof Error
+                        ? error.message
+                        : "Availability request failed.",
+                  }
+                : item
+            )
+          );
+        } finally {
+          completedInQueue += 1;
+          setCompleted(completedInQueue);
         }
-      };
-
-      await Promise.all(
-        Array.from({ length: Math.min(concurrency, pairs.length) }, () => worker())
-      );
+      }
     } catch (error) {
       setRouteState("error");
-      setRouteMessage(error instanceof Error ? error.message : "Could not load train route.");
+      setRouteMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not load train route."
+      );
+    } finally {
+      isRunningRef.current = false;
     }
   }, [date, model, refreshKey]);
+
+  const failedRequestCount = results.filter(
+    (item) =>
+      item.status === "error" &&
+      Boolean(item.fromStation.cityId && item.station.cityId)
+  ).length;
+
+  const retryFailedRequests = useCallback(async () => {
+    if (isRunningRef.current || isRetryingFailed) return;
+
+    const failedItems = results
+      .map((item, index) => ({ item, index }))
+      .filter(
+        ({ item }) =>
+          item.status === "error" &&
+          Boolean(item.fromStation.cityId && item.station.cityId)
+      );
+
+    if (!failedItems.length) return;
+
+    isRunningRef.current = true;
+    setIsRetryingFailed(true);
+    setCompleted(totalRequests - failedItems.length);
+
+    try {
+      for (let retryIndex = 0; retryIndex < failedItems.length; retryIndex += 1) {
+        const { item, index } = failedItems[retryIndex];
+
+        if (retryIndex > 0) {
+          await delay(REQUEST_GAP_MS);
+        }
+
+        setResults((current) =>
+          current.map((result, resultIndex) =>
+            resultIndex === index
+              ? { ...result, status: "loading", message: undefined }
+              : result
+          )
+        );
+
+        try {
+          const outcome = await searchStationPair(
+            { fromStation: item.fromStation, toStation: item.station },
+            model,
+            date
+          );
+
+          setResults((current) =>
+            current.map((result, resultIndex) =>
+              resultIndex === index
+                ? {
+                    ...result,
+                    status: outcome.status,
+                    availableCount: outcome.availableCount,
+                    seatClasses: outcome.seatClasses,
+                    message: outcome.message,
+                  }
+                : result
+            )
+          );
+        } catch (error) {
+          setResults((current) =>
+            current.map((result, resultIndex) =>
+              resultIndex === index
+                ? {
+                    ...result,
+                    status: "error",
+                    message:
+                      error instanceof Error
+                        ? error.message
+                        : "Availability request failed.",
+                  }
+                : result
+            )
+          );
+        } finally {
+          setCompleted((value) => value + 1);
+        }
+      }
+    } finally {
+      setIsRetryingFailed(false);
+      isRunningRef.current = false;
+    }
+  }, [date, isRetryingFailed, model, results, totalRequests]);
 
   useEffect(() => {
     if (storageReady) void loadRouteAndAvailability();
@@ -525,16 +681,29 @@ function AlternativeSeatsContent() {
         <div className="rk-alt__content-heading">
           <div>
             <h2>All forward station combinations</h2>
-            <p>Every station is paired with all stations that follow it on the route.</p>
+            <p>Every station is paired with all stations that follow it on the route. Requests run one at a time with automatic 429 backoff.</p>
           </div>
-          <button
-            type="button"
-            className="rk-alt__refresh"
-            onClick={() => setRefreshKey((value) => value + 1)}
-            disabled={routeState === "loading" || (totalRequests > 0 && completed < totalRequests)}
-          >
-            <span aria-hidden="true">↻</span> Refresh search
-          </button>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              className="rk-alt__refresh"
+              onClick={() => void retryFailedRequests()}
+              disabled={isRetryingFailed || isRunningRef.current || failedRequestCount === 0}
+            >
+              <span aria-hidden="true">↻</span>
+              {isRetryingFailed
+                ? "Retrying failed requests…"
+                : `Retry failed (${failedRequestCount})`}
+            </button>
+            <button
+              type="button"
+              className="rk-alt__refresh"
+              onClick={() => setRefreshKey((value) => value + 1)}
+              disabled={isRunningRef.current || routeState === "loading" || (totalRequests > 0 && completed < totalRequests)}
+            >
+              <span aria-hidden="true">↻</span> Refresh all
+            </button>
+          </div>
         </div>
 
         {routeState === "loading" && (
@@ -604,34 +773,34 @@ function AlternativeSeatsContent() {
           <div className="rk-alt__combination-list">
             {results.map((item, index) => {
               const status =
-                item?.status === "available" ? "available" :
-                item?.status === "sold" ? "sold" : "unknown";
+                item.status === "available" ? "available" :
+                item.status === "sold" ? "sold" : "unknown";
 
               return (
                 <article
                   className={`rk-alt__combination rk-alt__combination--${status}`}
-                  key={`${item?.fromStation?.id}-${item?.toStation?.id}-${index}`}
+                  key={`${item.fromStation.id}-${item.station.id}-${index}`}
                 >
                   <div className="rk-alt__combination-route">
                     <div className="rk-alt__combination-station">
-                      <small>FROM</small><strong>{displayName(item?.fromStation?.name)}</strong>
+                      <small>FROM</small><strong>{displayName(item.fromStation.name)}</strong>
                     </div>
                     <div className="rk-alt__combination-line"><span /><i aria-hidden="true">→</i><span /></div>
                     <div className="rk-alt__combination-station rk-alt__combination-station--end">
-                      <small>TO</small><strong>{displayName(item?.toStation?.name)}</strong>
+                      <small>TO</small><strong>{displayName(item.station.name)}</strong>
                     </div>
                   </div>
 
                   <div className="rk-alt__combination-availability">
                     <strong>
-                      {item?.status === "loading" || item?.status === "pending"
+                      {item.status === "loading" || item.status === "pending"
                         ? "…"
-                        : item.availableCount === null ? "—" : item?.availableCount}
+                        : item.availableCount === null ? "—" : item.availableCount}
                     </strong>
                     <span>
-                      {item?.status === "available" || item?.status === "sold"
+                      {item.status === "available" || item.status === "sold"
                         ? "seats available"
-                        : item?.status === "loading" || item?.status === "pending"
+                        : item.status === "loading" || item.status === "pending"
                           ? "checking availability"
                           : "availability unknown"}
                     </span>
