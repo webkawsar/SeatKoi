@@ -50,7 +50,7 @@
 .rk-alt__route-map--list .rk-alt__station-time{margin:0;font-size:11px}
 .rk-alt__route-map--list .rk-alt__station-tag{margin:0;padding:5px 9px;border-radius:7px;background:#e5f7ed;font-size:9px}
 .rk-alt__route-map--list .rk-alt__station-stop:not(:last-child)::after{content:"";display:none}
-.rk-alt__result-message{grid-column:1/-1;margin:0;color:#a64b3e;font-size:11px;line-height:1.5}
+.rk-alt__result-message{grid-column:1/-1;margin:0;color:#a64b3e;font-size:15px;line-height:1.5;text-align: center;}
 .rk-alt__combination--unknown{border-color:#e1e9e5;background:#fbfcfb}
 .rk-alt__combination--unknown .rk-alt__combination-availability strong{color:#6b8580}
 @media(max-width:600px){

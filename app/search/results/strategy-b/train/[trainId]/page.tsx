@@ -212,8 +212,8 @@ function money(value?: string | number): string {
 }
 
 
-const REQUEST_GAP_MS = 3000;
-const MAX_429_RETRIES = 3;
+const REQUEST_GAP_MS = 2000;
+const MAX_429_RETRIES = 1;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -746,7 +746,7 @@ function AlternativeSeatsContent() {
                   </span>
                   {(index === 0 || index === stations.length - 1) && (
                     <span className="rk-alt__station-tag" style={{ position: "absolute", top: "10px", right: "10px" }}>
-                      {index === 0 ? "START" : "DESTINATION"}
+                      {index === 0 ? "START" : "END"}
                     </span>
                   )}
                 </li>
@@ -772,6 +772,7 @@ function AlternativeSeatsContent() {
         {results.length > 0 && (
           <div className="rk-alt__combination-list">
             {results.map((item, index) => {
+               
               const status =
                 item.status === "available" ? "available" :
                 item.status === "sold" ? "sold" : "unknown";
