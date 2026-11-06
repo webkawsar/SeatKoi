@@ -104,30 +104,35 @@ function getTrainModel(train: Train | undefined, routeTrainId: string): string {
   return match ? match[1] : routeTrainId;
 }
 
-function getRouteStations(payload: unknown): { stations: RouteStation[]; trainName: string } {
+function getRouteStations(
+  payload: unknown
+): { stations: RouteStation[]; trainName: string } {
   const outer = asObject(payload);
   const envelope = asObject(outer?.data);
   const data = asObject(envelope?.data) ?? envelope ?? outer;
   const rawRoutes = Array.isArray(data?.routes) ? data.routes : [];
 
-  const stations = rawRoutes
-    .map((item: unknown, index: number) => {
-      const row = asObject(item);
-      if (!row?.city) return null;
-      const name = String(row.city);
-      const city = getCity(name);
-      return {
-        id: `${city?.city_id ?? normalizeName(name)}-${index}`,
-        cityId: city?.city_id,
-        name,
-        sequence: index,
-        arrival: row.arrival_time ? String(row.arrival_time) : undefined,
-        departure: row.departure_time ? String(row.departure_time) : undefined,
-        halt: row.halt ? String(row.halt) : undefined,
-        duration: row.duration ? String(row.duration) : undefined,
-      } satisfies RouteStation;
-    })
-    .filter((station: RouteStation | null): station is RouteStation => Boolean(station));
+  const stations = rawRoutes.reduce<RouteStation[]>((result, item, index) => {
+    const row = asObject(item);
+
+    if (!row?.city) return result;
+
+    const name = String(row.city);
+    const city = getCity(name);
+
+    result.push({
+      id: `${city?.city_id ?? normalizeName(name)}-${index}`,
+      cityId: city?.city_id,
+      name,
+      sequence: index,
+      arrival: row.arrival_time ? String(row.arrival_time) : undefined,
+      departure: row.departure_time ? String(row.departure_time) : undefined,
+      halt: row.halt ? String(row.halt) : undefined,
+      duration: row.duration ? String(row.duration) : undefined,
+    });
+
+    return result;
+  }, []);
 
   return { stations, trainName: String(data?.train_name ?? "") };
 }
@@ -159,20 +164,28 @@ function getSeatClasses(train: Record<string, any>): SeatClass[] {
       ? train.seat_classes
       : [];
 
-  return rows
-    .map((row: unknown) => {
-      const item = asObject(row);
-      if (!item?.type) return null;
-      const counts = asObject(item.seat_counts);
-      const raw = counts?.online ?? item.available_seats ?? item.available_count;
-      const count = raw === undefined || raw === null || raw === "" ? null : Number(raw);
-      return {
-        type: String(item.type),
-        online: count !== null && Number.isFinite(count) ? Math.max(0, count) : null,
-        fare: item.fare,
-      } satisfies SeatClass;
-    })
-    .filter((item: SeatClass | null): item is SeatClass => Boolean(item));
+  return rows.reduce<SeatClass[]>((result, row) => {
+    const item = asObject(row);
+
+    if (!item?.type) return result;
+
+    const counts = asObject(item.seat_counts);
+    const raw = counts?.online ?? item.available_seats ?? item.available_count;
+    const count =
+      raw === undefined || raw === null || raw === ""
+        ? null
+        : Number(raw);
+
+    result.push({
+      type: String(item.type),
+      online: count !== null && Number.isFinite(count)
+        ? Math.max(0, count)
+        : null,
+      fare: item.fare,
+    });
+
+    return result;
+  }, []);
 }
 
 // Match by train_model/model first. Segment-specific trip_id values are not reliable identifiers.

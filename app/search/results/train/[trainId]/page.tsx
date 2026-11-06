@@ -89,17 +89,23 @@ function getTrainModel(train: Train | undefined, routeTrainId: string): string {
   const match = String(train?.trip_number ?? routeTrainId).match(/\((\d+)\)/) ?? String(train?.trip_number ?? routeTrainId).match(/\d+/);
   return match ? match[1] : routeTrainId;
 }
-function getRouteStations(payload: unknown): { stations: RouteStation[]; trainName: string } {
+function getRouteStations(
+  payload: unknown
+): { stations: RouteStation[]; trainName: string } {
   const outer = asObject(payload);
   const envelope = asObject(outer?.data);
   const data = asObject(envelope?.data) ?? envelope ?? outer;
   const rawRoutes = Array.isArray(data?.routes) ? data.routes : [];
-  const stations = rawRoutes.map((item: unknown, index: number) => {
+
+  const stations = rawRoutes.reduce<RouteStation[]>((result, item, index) => {
     const row = asObject(item);
-    if (!row?.city) return null;
+
+    if (!row?.city) return result;
+
     const name = String(row.city);
     const city = getCity(name);
-    return {
+
+    result.push({
       id: `${city?.city_id ?? normalizeName(name)}-${index}`,
       cityId: city?.city_id,
       name,
@@ -108,10 +114,14 @@ function getRouteStations(payload: unknown): { stations: RouteStation[]; trainNa
       departure: row.departure_time ? String(row.departure_time) : undefined,
       halt: row.halt ? String(row.halt) : undefined,
       duration: row.duration ? String(row.duration) : undefined,
-    } satisfies RouteStation;
-  }).filter((station: RouteStation | null): station is RouteStation => Boolean(station));
+    });
+
+    return result;
+  }, []);
+
   return { stations, trainName: String(data?.train_name ?? "") };
 }
+
 function findTrainList(payload: unknown): Record<string, any>[] {
   const queue: unknown[] = [payload];
   const seen = new Set<unknown>();
@@ -128,21 +138,38 @@ function findTrainList(payload: unknown): Record<string, any>[] {
   }
   return [];
 }
+
 function getSeatClasses(train: Record<string, any>): SeatClass[] {
-  const rows = Array.isArray(train.seat_types) ? train.seat_types : Array.isArray(train.seat_classes) ? train.seat_classes : [];
-  return rows.map((row: unknown) => {
+  const rows = Array.isArray(train.seat_types)
+    ? train.seat_types
+    : Array.isArray(train.seat_classes)
+      ? train.seat_classes
+      : [];
+
+  return rows.reduce<SeatClass[]>((result, row) => {
     const item = asObject(row);
-    if (!item?.type) return null;
+
+    if (!item?.type) return result;
+
     const counts = asObject(item.seat_counts);
     const raw = counts?.online ?? item.available_seats ?? item.available_count;
-    const count = raw === undefined || raw === null || raw === "" ? null : Number(raw);
-    return {
+    const count =
+      raw === undefined || raw === null || raw === ""
+        ? null
+        : Number(raw);
+
+    result.push({
       type: String(item.type),
-      online: count !== null && Number.isFinite(count) ? Math.max(0, count) : null,
+      online: count !== null && Number.isFinite(count)
+        ? Math.max(0, count)
+        : null,
       fare: item.fare,
-    } satisfies SeatClass;
-  }).filter((item: SeatClass | null): item is SeatClass => Boolean(item));
+    });
+
+    return result;
+  }, []);
 }
+
 function trainMatches(item: Record<string, any>, model: string, pageId: string): boolean {
   const itemModel = String(item.train_model ?? item.model ?? "");
   const tripNumber = String(item.trip_number ?? item.train_name ?? "");
