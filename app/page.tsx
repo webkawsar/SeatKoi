@@ -196,6 +196,13 @@ export default function Home() {
               Find Trains
             </a>
 
+            <Link
+              href="/extension"
+              className="rk-nav__link rk-nav__link"
+            >
+              Extension
+            </Link>
+
             {authStatus === "authenticated" ? (
               <span className="rk-auth-indicator">
                 <span className="rk-auth-indicator__dot" />
