@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import StationAutocomplete, {
   type RailwayCity,
 } from "@/components/search/StationAutocomplete";
@@ -245,7 +246,7 @@ const initials = displayName
   return (
     <main className="rail-search">
       <header className="rail-search__header">
-        <a href="/search" className="rail-search__brand">
+        <Link href="/" className="rail-search__brand">
           <span className="rail-search__brand-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <rect x="4" y="3" width="16" height="15" rx="4" />
@@ -256,7 +257,7 @@ const initials = displayName
             <strong>SeatKoi</strong>
             <small>Bangladesh Railway</small>
           </span>
-        </a>
+        </Link>
         <div className="rail-search__secure">
           <div className="profile" style={{
               border: "2px solid green",

@@ -1,8 +1,8 @@
 
 "use client";
-
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import "./TokenForm.css";
+import Link from "next/link";
 
 
 type TokenFormData = {
@@ -24,6 +24,30 @@ export default function TokenForm({ onSubmit }: TokenFormProps) {
   const [showDeviceKey, setShowDeviceKey] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+useEffect(() => {
+  const loadCredentials = () => {
+    try {
+      const savedCredentials = sessionStorage.getItem(
+        "SeatKoi_user_credentials"
+      );
+
+      if (!savedCredentials) {
+        return;
+      }
+
+      const credentials = JSON.parse(savedCredentials);
+      setToken(credentials.token ?? "");
+      setDeviceId(credentials.deviceId ?? "");
+      setDeviceKey(credentials.deviceKey ?? "");
+
+    } catch (error) {
+      console.error("Unable to load Railway credentials:", error);
+    }
+  };
+
+  loadCredentials();
+}, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -58,32 +82,34 @@ export default function TokenForm({ onSubmit }: TokenFormProps) {
     <section className="rail-token">
       <div className="rail-token__card">
         <div className="rail-token__brand">
-          <div className="rail-token__logo" aria-hidden="true">
-            <svg
-              viewBox="0 0 48 48"
-              fill="none"
-              width="30"
-              height="30"
-            >
-              <rect
-                x="9"
-                y="5"
+          <Link href="/">
+            <div className="rail-token__logo" aria-hidden="true">
+              <svg
+                viewBox="0 0 48 48"
+                fill="none"
                 width="30"
-                height="34"
-                rx="8"
-                stroke="currentColor"
-                strokeWidth="3"
-              />
-              <path
-                d="M15 13H33M15 22H33M17 39L12 44M31 39L36 44"
-                stroke="currentColor"
-                strokeWidth="3"
-                strokeLinecap="round"
-              />
-              <circle cx="17" cy="31" r="2" fill="currentColor" />
-              <circle cx="31" cy="31" r="2" fill="currentColor" />
-            </svg>
-          </div>
+                height="30"
+              >
+                <rect
+                  x="9"
+                  y="5"
+                  width="30"
+                  height="34"
+                  rx="8"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                />
+                <path
+                  d="M15 13H33M15 22H33M17 39L12 44M31 39L36 44"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                />
+                <circle cx="17" cy="31" r="2" fill="currentColor" />
+                <circle cx="31" cy="31" r="2" fill="currentColor" />
+              </svg>
+            </div>
+          </Link>
 
           <div>
             <p className="rail-token__eyebrow">SEATKOI</p>

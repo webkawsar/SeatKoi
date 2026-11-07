@@ -71,3 +71,41 @@ export default function TokenPage() {
     </>
   );
 }
+
+
+{/* <button
+  type="button"
+  onClick={() => {
+    window.dispatchEvent(
+      new Event("seatkoi:connect-railway")
+    );
+  }}
+>
+  Connect Railway Account
+</button>
+
+useEffect(() => {
+  const handler = (event: Event) => {
+    const detail = (
+      event as CustomEvent<{
+        success: boolean;
+        message: string;
+      }>
+    ).detail;
+
+    setConnectionMessage(detail.message);
+    setConnected(detail.success);
+  };
+
+  window.addEventListener(
+    "seatkoi:railway-connection-result",
+    handler
+  );
+
+  return () => {
+    window.removeEventListener(
+      "seatkoi:railway-connection-result",
+      handler
+    );
+  };
+}, []); */}

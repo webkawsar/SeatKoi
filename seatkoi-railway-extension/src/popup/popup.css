@@ -1,0 +1,10 @@
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 280px; padding: 18px; color: #17251e; background: #f4f7f5; font: 13px/1.6 Arial, sans-serif; }
+.card { padding: 18px; border: 1px solid #e2eae4; border-radius: 14px; background: #fff; }
+.brand { color: #16803d; font-weight: 800; letter-spacing: 1px; }
+h1 { margin: 8px 0; font-size: 18px; }
+p { margin: 8px 0 14px; color: #526b5a; }
+.steps { display: grid; gap: 8px; }
+.steps div { display: flex; gap: 9px; align-items: center; }
+.steps b { display: inline-grid; width: 22px; height: 22px; place-items: center; border-radius: 50%; color: #16803d; background: #e8f7ed; }
+.note { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid #edf1ee; font-size: 11px; }
