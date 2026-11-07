@@ -1,7 +1,7 @@
 
 import "./extension.css";
 
-const EXTENSION_DOWNLOAD_URL = "https://drive.google.com/file/d/1JevPpXBkgNa9_-YNqVEt50D5G8mb5GAQ/view?usp=sharing";
+const EXTENSION_DOWNLOAD_URL = "https://drive.google.com/drive/folders/1-9KeZHDyxglDhJVqaIVyt53dR8UrZz6n?usp=sharing";
 
 const installationSteps = [
   {
